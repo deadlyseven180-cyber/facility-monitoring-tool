@@ -142,18 +142,15 @@ export default function GatherOneReport() {
     setError(null);
     setAnalyzing(true);
     try {
+      // Use this browser's saved token if present; otherwise fall back to the
+      // server-side AIRTABLE_PAT — identical to the Facility Progress Checker —
+      // so the report works on any device/network without pasting a token.
       const pat =
         typeof window !== "undefined"
           ? localStorage.getItem("airtablePat")
           : null;
-      if (!pat) {
-        setError(
-          "No Airtable token found for this address. Open Settings and paste your Airtable Personal Access Token, then try again.",
-        );
-        return;
-      }
       const res = await fetch("/api/internal-issues?category=all", {
-        headers: { "x-airtable-pat": pat },
+        headers: pat ? { "x-airtable-pat": pat } : {},
       });
       const j = await res.json();
       if (!res.ok || !j?.ok) {
