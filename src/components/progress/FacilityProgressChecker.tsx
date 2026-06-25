@@ -183,14 +183,14 @@ function InternalSources() {
       .then((j) => {
         if (!j?.records) return;
         const agg = new Map<string, Tally>();
+        // Records are de-duplicated by Rental ID; attribute each RID to its
+        // single primary table so a duplicate is never counted twice.
         for (const r of j.records as { category?: string; source?: string; origins?: string[] }[]) {
-          const origins = r.origins?.length ? r.origins : [r.source || "Airtable"];
-          for (const o of origins) {
-            const e = agg.get(o) ?? { name: o, lotFull: 0, inacc: 0 };
-            if (r.category === "lot_full") e.lotFull++;
-            else if (r.category === "inaccessibility") e.inacc++;
-            agg.set(o, e);
-          }
+          const o = r.source || r.origins?.[0] || "Airtable";
+          const e = agg.get(o) ?? { name: o, lotFull: 0, inacc: 0 };
+          if (r.category === "lot_full") e.lotFull++;
+          else if (r.category === "inaccessibility") e.inacc++;
+          agg.set(o, e);
         }
         setSources([...agg.values()].sort((a, b) => b.lotFull + b.inacc - (a.lotFull + a.inacc)));
       })

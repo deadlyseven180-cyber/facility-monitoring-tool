@@ -192,17 +192,16 @@ export default function GatherOneReport() {
         setError("No internal Lot Full or Inaccessibility issues found in Airtable.");
         return;
       }
-      // Tally each Airtable source's Lot Full / Inaccessibility cases (a record
-      // found in two tables counts under each).
+      // Tally each Airtable source's Lot Full / Inaccessibility cases. Records
+      // are already de-duplicated by Rental ID, and each RID is attributed to a
+      // single (primary) table, so a duplicate RID is never counted twice.
       const agg = new Map<string, SourceTally>();
       for (const r of records) {
-        const origins = r.origins?.length ? r.origins : [r.source || "Airtable"];
-        for (const o of origins) {
-          const e = agg.get(o) ?? { name: o, lotFull: 0, inacc: 0 };
-          if (r.category === "lot_full") e.lotFull++;
-          else if (r.category === "inaccessibility") e.inacc++;
-          agg.set(o, e);
-        }
+        const o = r.source || r.origins?.[0] || "Airtable";
+        const e = agg.get(o) ?? { name: o, lotFull: 0, inacc: 0 };
+        if (r.category === "lot_full") e.lotFull++;
+        else if (r.category === "inaccessibility") e.inacc++;
+        agg.set(o, e);
       }
       setSources([...agg.values()].sort((a, b) => b.lotFull + b.inacc - (a.lotFull + a.inacc)));
       setInternalRows(rows);
