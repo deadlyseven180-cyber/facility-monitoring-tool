@@ -12,12 +12,11 @@ const FACILITY_TABLE = "tblmun9KBYW4aYBe1";
 const CACHE_DIR = path.join(process.cwd(), ".data");
 const DIR_FILE = path.join(CACHE_DIR, "facility-directory.json");
 
-// Internal-complaint source tables. Each is fetched independently and a
-// missing/renamed/inaccessible table is skipped (not fatal), so the sync
-// self-heals when the Airtable schema changes. (CUSTOMER INTERACTIONS was
-// removed from the base, so it's no longer listed here.)
+// Internal-complaint source table(s). Only the Refunds & Reimbursements table is
+// gathered — RingCentral Conversations is intentionally excluded. Each source is
+// fetched independently and a missing/renamed/inaccessible table is skipped (not
+// fatal), so the sync self-heals when the Airtable schema changes.
 const SOURCES = [
-  { table: "tblViMnfhcqyMKBHU", reason: "REASON FOR CONTACT CATEGORY", origin: "RingCentral Conversations", fields: ["REASON FOR CONTACT CATEGORY", "RENTAL ID", "DATE", "FACILITY", "SOURCE"] },
   { table: "tblRziRjireToOPoF", reason: "REASON CATEGORY", origin: "Refunds & Reimbursements", fields: ["REASON CATEGORY", "RENTAL ID", "DATE", "FACILITY", "STATE", "AMOUNT"] },
 ];
 
@@ -187,6 +186,8 @@ export async function fetchInternalComplaints(pat: string, dir: Directory): Prom
       complaintDate: rec.date,
       source: "Internal",
       resolutionStatus: "Open",
+      state: rec.state,
+      amount: rec.amount,
       notes: "",
       uploadDate: now,
       reportingYear: parts.year,

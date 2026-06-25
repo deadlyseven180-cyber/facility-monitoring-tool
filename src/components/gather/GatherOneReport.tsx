@@ -3,12 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import MultiFileUpload from "@/components/shared/MultiFileUpload";
 import DateRangeFilter from "@/components/shared/DateRangeFilter";
+import FacilityRecordsModal from "@/components/shared/FacilityRecordsModal";
 import ReportCharts from "./ReportCharts";
 import TopFacilitiesChart from "./TopFacilitiesChart";
 import PriorityBadge from "./PriorityBadge";
 import type { ParsedCsv } from "@/types/data";
 import type {
   FacilitySummary,
+  FilteredRecord,
   PriorityLevel,
   ReportResult,
 } from "@/types/report";
@@ -230,8 +232,8 @@ export default function GatherOneReport() {
             <span className="font-medium text-slate-700 dark:text-slate-200">
               Inaccessibility
             </span>{" "}
-            report. Internal issues (from the RingCentral Conversations and
-            Refunds &amp; Reimbursements tables in Airtable) are gathered{" "}
+            report. Internal issues (from the Refunds &amp; Reimbursements table
+            in Airtable) are gathered{" "}
             <span className="font-medium text-slate-700 dark:text-slate-200">
               automatically from Airtable
             </span>
@@ -506,6 +508,7 @@ function ReportDashboard({ result }: { result: ReportResult }) {
         <FacilitySummaryTable
           facilities={result.facilities}
           typeByFacility={typeByFacility}
+          records={result.records}
         />
       </Section>
 
@@ -540,13 +543,29 @@ function typeStyle(t: string): string {
 function FacilitySummaryTable({
   facilities,
   typeByFacility,
+  records,
 }: {
   facilities: FacilitySummary[];
   typeByFacility: Map<string, string>;
+  records: FilteredRecord[];
 }) {
   const [priority, setPriority] = useState<"All" | PriorityLevel>("All");
   const [sortKey, setSortKey] = useState<SortKey>("incidentCount");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [picked, setPicked] = useState<string | null>(null);
+  const pickedRows = useMemo(() => {
+    if (!picked) return [];
+    return records
+      .filter((r) => r.facility === picked)
+      .sort((a, b) => (b.starts || "").localeCompare(a.starts || ""))
+      .map((r) => ({
+        rentalId: r.rentalId,
+        date: r.starts,
+        type: r.category === "lot_full" ? "Lot Full" : r.category === "inaccessibility" ? "Inaccessibility" : "Other",
+        state: r.state || "",
+        refund: r.refundAmount || null,
+      }));
+  }, [picked, records]);
 
   // Only the top 50 facilities (by the current sort) are shown.
   const TOP_N = 50;
@@ -651,10 +670,16 @@ function FacilitySummaryTable({
                     {f.state}
                   </FTd>
                   <FTd
-                    className="max-w-[200px] truncate font-medium text-slate-800 dark:text-slate-100"
-                    title={f.facility}
+                    className="max-w-[200px] truncate"
+                    title={`${f.facility} — click for case details`}
                   >
-                    {f.facility}
+                    <button
+                      type="button"
+                      onClick={() => setPicked(f.facility)}
+                      className="max-w-full truncate text-left font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                    >
+                      {f.facility}
+                    </button>
                   </FTd>
                   <FTd>
                     <span
@@ -703,6 +728,9 @@ function FacilitySummaryTable({
         <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
           Showing top {TOP_N} of {filteredCount} facilities.
         </p>
+      )}
+      {picked && (
+        <FacilityRecordsModal facility={picked} rows={pickedRows} onClose={() => setPicked(null)} />
       )}
     </div>
   );

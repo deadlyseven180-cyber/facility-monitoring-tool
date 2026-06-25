@@ -15,6 +15,8 @@ export interface ComplaintRecord {
   resolutionStatus: string; // Open | Closed (default "Open")
   resolutionDate?: string; // ISO, when closed
   rootCause?: string; // assigned via the overlay
+  state?: string; // facility/booking state (internal complaints)
+  amount?: number; // refund amount, if any (internal complaints)
   notes: string;
   uploadDate: string; // ISO datetime when ingested
   reportingYear: number;

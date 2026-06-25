@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { ChartConfiguration } from "chart.js/auto";
 import ChartCanvas from "@/components/shared/ChartCanvas";
 import MultiFileUpload from "@/components/shared/MultiFileUpload";
+import FacilityRecordsModal from "@/components/shared/FacilityRecordsModal";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { detectColumns, isAccountingReport } from "@/lib/reports/analyze";
 import { categoryForReason } from "@/lib/reports/filters";
@@ -147,6 +148,20 @@ function Dashboard({ records }: { records: ComplaintRecord[] }) {
   const top10 = useMemo(() => [...facs].sort((a, b) => b.counts.total - a.counts.total).slice(0, 10), [facs]);
   const improved = useMemo(() => facs.filter((f) => f.dir === "down").sort((a, b) => (a.current - a.previous) - (b.current - b.previous)).slice(0, 10), [facs]);
   const rising = useMemo(() => facs.filter((f) => f.dir === "up").sort((a, b) => (b.current - b.previous) - (a.current - a.previous)).slice(0, 10), [facs]);
+  const [picked, setPicked] = useState<string | null>(null);
+  const pickedRows = useMemo(() => {
+    if (!picked) return [];
+    return rows
+      .filter((r) => r.facilityName === picked)
+      .sort((a, b) => (b.complaintDate || "").localeCompare(a.complaintDate || ""))
+      .map((r) => ({
+        rentalId: r.rentalId,
+        date: r.complaintDate,
+        type: r.complaintType === "lot_full" ? "Lot Full" : "Inaccessibility",
+        state: r.state || "",
+        refund: r.amount ?? null,
+      }));
+  }, [picked, rows]);
 
   return (
     <div className="space-y-5">
@@ -163,11 +178,12 @@ function Dashboard({ records }: { records: ComplaintRecord[] }) {
         <Card title="Yearly Trend"><TrendChart series={yearlySeries(rows)} kind="bar" /></Card>
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Card title="Top 10 Facilities"><FacMini rows={top10} metric="total" /></Card>
-        <Card title="Most Improved"><FacMini rows={improved} metric="change" good /></Card>
-        <Card title="Increasing Complaints"><FacMini rows={rising} metric="change" /></Card>
+        <Card title="Top 10 Facilities"><FacMini rows={top10} metric="total" onPick={setPicked} /></Card>
+        <Card title="Most Improved"><FacMini rows={improved} metric="change" good onPick={setPicked} /></Card>
+        <Card title="Increasing Complaints"><FacMini rows={rising} metric="change" onPick={setPicked} /></Card>
       </div>
       <InternalSources />
+      {picked && <FacilityRecordsModal facility={picked} rows={pickedRows} onClose={() => setPicked(null)} />}
     </div>
   );
 }
@@ -219,7 +235,7 @@ function InternalSources() {
   );
 }
 
-function FacMini({ rows, metric, good }: { rows: FacilityRow[]; metric: "total" | "current" | "change"; good?: boolean }) {
+function FacMini({ rows, metric, good, onPick }: { rows: FacilityRow[]; metric: "total" | "current" | "change"; good?: boolean; onPick?: (name: string) => void }) {
   if (rows.length === 0) return <Empty msg="No data." />;
   return (
     <ol className="space-y-1 text-sm">
@@ -227,7 +243,9 @@ function FacMini({ rows, metric, good }: { rows: FacilityRow[]; metric: "total" 
         <li key={f.name} className="flex items-center justify-between gap-2">
           <span className="flex min-w-0 items-center gap-2">
             <span className="w-4 shrink-0 text-right text-xs text-slate-400">{i + 1}</span>
-            <span className="truncate text-slate-700 dark:text-slate-300" title={f.name}>{f.name}</span>
+            {onPick
+              ? <button type="button" onClick={() => onPick(f.name)} className="truncate text-left font-medium text-indigo-600 hover:underline dark:text-indigo-400" title={`${f.name} — click for case details`}>{f.name}</button>
+              : <span className="truncate text-slate-700 dark:text-slate-300" title={f.name}>{f.name}</span>}
           </span>
           {metric === "change"
             ? <span title={`${f.previous} → ${f.current} (${f.changePct >= 0 ? "+" : ""}${f.changePct}%)`} className={`shrink-0 font-semibold tabular-nums ${good ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>{f.dir === "down" ? "▼" : "▲"} {Math.abs(f.current - f.previous)} <span className="text-xs font-normal text-slate-400">({f.previous}→{f.current})</span></span>
