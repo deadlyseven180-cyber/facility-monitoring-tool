@@ -167,7 +167,55 @@ function Dashboard({ records }: { records: ComplaintRecord[] }) {
         <Card title="Most Improved"><FacMini rows={improved} metric="change" good /></Card>
         <Card title="Increasing Complaints"><FacMini rows={rising} metric="change" /></Card>
       </div>
+      <InternalSources />
     </div>
+  );
+}
+
+/* Per-Airtable-source breakdown of internal Lot Full / Inaccessibility cases. */
+function InternalSources() {
+  type Tally = { name: string; lotFull: number; inacc: number };
+  const [sources, setSources] = useState<Tally[]>([]);
+  useEffect(() => {
+    const pat = typeof window !== "undefined" ? localStorage.getItem(PAT_KEY) : null;
+    fetch("/api/internal-issues?category=all", { headers: pat ? { "x-airtable-pat": pat } : {} })
+      .then((r) => r.json())
+      .then((j) => {
+        if (!j?.records) return;
+        const agg = new Map<string, Tally>();
+        for (const r of j.records as { category?: string; source?: string; origins?: string[] }[]) {
+          const origins = r.origins?.length ? r.origins : [r.source || "Airtable"];
+          for (const o of origins) {
+            const e = agg.get(o) ?? { name: o, lotFull: 0, inacc: 0 };
+            if (r.category === "lot_full") e.lotFull++;
+            else if (r.category === "inaccessibility") e.inacc++;
+            agg.set(o, e);
+          }
+        }
+        setSources([...agg.values()].sort((a, b) => b.lotFull + b.inacc - (a.lotFull + a.inacc)));
+      })
+      .catch(() => {});
+  }, []);
+  if (sources.length === 0) return null;
+  return (
+    <Card title="Internal Data Sources (Airtable)">
+      <p className="mb-3 -mt-1 text-xs text-slate-500 dark:text-slate-400">Lot Full &amp; Inaccessibility cases gathered from each connected table.</p>
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead><tr className="text-left text-xs uppercase text-slate-400"><th className="py-1.5 pr-3">Source table</th><th className="px-3 text-right">Lot Full</th><th className="px-3 text-right">Inaccessibility</th><th className="px-3 text-right">Total</th></tr></thead>
+          <tbody>
+            {sources.map((s) => (
+              <tr key={s.name} className="border-t border-slate-100 dark:border-slate-800">
+                <td className="py-1.5 pr-3 font-medium text-slate-800 dark:text-slate-100">{s.name}</td>
+                <td className="px-3 text-right tabular-nums">{s.lotFull}</td>
+                <td className="px-3 text-right tabular-nums">{s.inacc}</td>
+                <td className="px-3 text-right font-semibold tabular-nums">{s.lotFull + s.inacc}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }
 
