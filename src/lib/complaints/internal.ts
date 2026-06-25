@@ -29,7 +29,12 @@ function str(v: unknown): string {
 }
 function categoryFor(reason: string): ComplaintType | null {
   const r = reason.toLowerCase();
-  if (r.includes("lot full")) return "lot_full";
+  if (r.includes("lot full")) {
+    // Count every Lot Full reason EXCEPT "LOT FULL - NO RESPONSE" (unconfirmed —
+    // the customer never replied, so it isn't treated as a Lot Full case).
+    if (r.includes("no response")) return null;
+    return "lot_full";
+  }
   if (r.includes("inacces") || r.includes("inaces")) return "inaccessibility";
   return null;
 }
