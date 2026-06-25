@@ -1,0 +1,32 @@
+{
+  "name": "all-in-one-data-tool",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -H 0.0.0.0",
+    "build": "next build",
+    "start": "next start -H 0.0.0.0",
+    "share": "npx -y cloudflared tunnel --url http://localhost:3000",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "chart.js": "^4.5.1",
+    "cloudflared": "^0.7.1",
+    "next": "16.2.9",
+    "papaparse": "^5.5.3",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/papaparse": "^5.5.2",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.9",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}

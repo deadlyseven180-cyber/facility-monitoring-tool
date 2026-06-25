@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+/* Enable class-based dark mode: `.dark` on any ancestor activates dark: variants. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+/* Smooth theme transitions on color-bearing surfaces. */
+* {
+  transition-property: background-color, border-color;
+  transition-duration: 150ms;
+}

@@ -1,0 +1,31 @@
+# Render Blueprint for the Facility Monitoring Tool (Next.js).
+# Deploy: push this repo to GitHub, then in Render → New → Blueprint, pick the repo.
+# Render auto-detects this file and provisions the service below.
+services:
+  - type: web
+    name: facility-monitoring-tool
+    runtime: node
+    plan: free            # free tier: spins down when idle; ephemeral disk (see note)
+    buildCommand: npm install && npm run build
+    startCommand: npm run start   # next start binds to $PORT that Render provides
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Optional: set a server-side Airtable token so internal complaints sync
+      # without each viewer pasting one in Settings. Leave unset to keep the
+      # current behavior (token entered per-browser in Settings).
+      # - key: AIRTABLE_PAT
+      #   sync: false
+
+    # ── Persistence (uploads / notes / investigations) ──────────────────────
+    # The app stores uploaded SpotHero history + notes as JSON under ./.data.
+    # On the FREE tier that folder is ephemeral: anything added after deploy is
+    # lost on the next restart/redeploy (Airtable internal complaints are always
+    # live, so those are unaffected). To make uploads persist, switch `plan` to
+    # `starter` (paid) and uncomment the disk below:
+    # disk:
+    #   name: data
+    #   mountPath: /opt/render/project/src/.data
+    #   sizeGB: 1
