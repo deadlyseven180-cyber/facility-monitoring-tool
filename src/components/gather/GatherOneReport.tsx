@@ -58,6 +58,14 @@ function internalToMergedRows(
   }));
 }
 
+/** The current calendar month so far (1st → today) — the default date filter. */
+function thisMonthRange(): DateRange {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  const ym = `${d.getFullYear()}-${p(d.getMonth() + 1)}`;
+  return { start: `${ym}-01`, end: `${ym}-${p(d.getDate())}` };
+}
+
 export default function GatherOneReport() {
   const [files, setFiles] = useState<ParsedCsv[]>([]);
   // Internal Lot Full / Inaccessibility rows pulled from Airtable on generate.
@@ -72,6 +80,12 @@ export default function GatherOneReport() {
   // facilities whose uploaded rows carry none (e.g. call logs). Cached on the
   // server; fetched here with the Airtable PAT when this machine has one.
   const [facilityStates, setFacilityStates] = useState<Record<string, string>>({});
+
+  // Default the date filter to the current month (set on mount to avoid any
+  // server/client date mismatch); the user can still adjust it freely.
+  useEffect(() => {
+    setDateRange(thisMonthRange());
+  }, []);
 
   useEffect(() => {
     const token =
@@ -126,7 +140,7 @@ export default function GatherOneReport() {
     setAnalyzed(false);
     setStateFilter("All");
     setCategory("all");
-    setDateRange({});
+    setDateRange(thisMonthRange());
     setError(null);
     setInternalRows([]);
   }
