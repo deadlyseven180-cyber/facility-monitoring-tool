@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useTheme } from "@/components/theme/ThemeProvider";
 
 export const PAT_KEY = "airtablePat";
-const DP_URL_KEY = "dpAppsScriptUrl";
 const NAME_KEY = "progressUserName";
 const DEFAULT_NAME = "customer.support@yourspotrented.com";
 
@@ -16,13 +15,10 @@ export default function Settings() {
   const [testResult, setTestResult] = useState<string | null>(null);
   // Real connection state from a live Airtable read (not just "a token exists").
   const [live, setLive] = useState<"unknown" | "ok" | "fail">("unknown");
-  const [dpUrl, setDpUrl] = useState<string | null>(null);
-  const [dpInput, setDpInput] = useState("");
   const [userName, setUserName] = useState("");
 
   useEffect(() => {
     setPat(localStorage.getItem(PAT_KEY) ?? "");
-    setDpUrl(localStorage.getItem(DP_URL_KEY) ?? "");
     setUserName(localStorage.getItem(NAME_KEY) ?? DEFAULT_NAME);
     // Verify the saved token actually works (live read), not just that it exists.
     if (localStorage.getItem(PAT_KEY)) test();
@@ -36,19 +32,6 @@ export default function Settings() {
     } catch {
       /* ignore */
     }
-  }
-
-  function saveDp() {
-    const v = dpInput.trim();
-    if (!v) return;
-    localStorage.setItem(DP_URL_KEY, v);
-    setDpUrl(v);
-    setDpInput("");
-  }
-
-  function disconnectDp() {
-    localStorage.removeItem(DP_URL_KEY);
-    setDpUrl("");
   }
 
   function save() {
@@ -107,7 +90,6 @@ export default function Settings() {
       : live === "fail"
         ? { text: "Token not working", cls: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300" }
         : { text: "Checking…", cls: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300" };
-  const dpConnected = Boolean(dpUrl);
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -254,65 +236,6 @@ export default function Settings() {
         )}
       </section>
 
-      {/* Daily Parkers (Gmail) sync — runs in the background; tab is hidden. */}
-      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-            Daily Parkers (Gmail Sync)
-          </h2>
-          <span
-            className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-              dpConnected
-                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
-                : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-            }`}
-          >
-            {dpConnected ? "Connected" : "Not connected"}
-          </span>
-        </div>
-        <p className="mb-4 mt-1 text-sm text-slate-500 dark:text-slate-400">
-          Syncs SH Daily Parkers reservations from Gmail (via your Apps Script
-          Web app) in the background, every few minutes. The Overbook Checker
-          uses these as transient bookings. Setup steps are in{" "}
-          <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">
-            apps-script/DailyParkers.gs
-          </code>
-          .
-        </p>
-
-        {dpConnected ? (
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="max-w-full truncate rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-              {dpUrl}
-            </span>
-            <button
-              type="button"
-              onClick={disconnectDp}
-              className="text-sm font-semibold text-rose-600 hover:underline dark:text-rose-400"
-            >
-              Disconnect
-            </button>
-          </div>
-        ) : (
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="text"
-              value={dpInput}
-              onChange={(e) => setDpInput(e.target.value)}
-              placeholder="https://script.google.com/macros/s/…/exec"
-              className="grow rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:ring-indigo-500/30"
-            />
-            <button
-              type="button"
-              onClick={saveDp}
-              disabled={!dpInput.trim()}
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-slate-700"
-            >
-              Save
-            </button>
-          </div>
-        )}
-      </section>
     </div>
   );
 }
