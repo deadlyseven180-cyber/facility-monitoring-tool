@@ -40,6 +40,16 @@ interface InternalRecord {
   reason: string;
   state: string;
   amount: number;
+  category?: "lot_full" | "inaccessibility";
+  source?: string;
+  origins?: string[];
+}
+
+/** Per-Airtable-source tally of internal Lot Full / Inaccessibility cases. */
+interface SourceTally {
+  name: string;
+  lotFull: number;
+  inacc: number;
 }
 
 /** Convert internal Airtable issues into the analyzer's merged-row shape. */
@@ -76,6 +86,8 @@ export default function GatherOneReport() {
   const [dateRange, setDateRange] = useState<DateRange>({});
   const [error, setError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  // Per-Airtable-source breakdown of internal cases (RingCentral, Refunds…).
+  const [sources, setSources] = useState<SourceTally[]>([]);
   // Canonical-facility → state (MA/IL/DC) map, used to fill in the state for
   // facilities whose uploaded rows carry none (e.g. call logs). Cached on the
   // server; fetched here with the Airtable PAT when this machine has one.
@@ -143,6 +155,7 @@ export default function GatherOneReport() {
     setDateRange(thisMonthRange());
     setError(null);
     setInternalRows([]);
+    setSources([]);
   }
 
   function handleClear() {
@@ -173,11 +186,25 @@ export default function GatherOneReport() {
         );
         return;
       }
-      const rows = internalToMergedRows(j.records as InternalRecord[]);
+      const records = j.records as InternalRecord[];
+      const rows = internalToMergedRows(records);
       if (rows.length === 0 && files.length === 0) {
         setError("No internal Lot Full or Inaccessibility issues found in Airtable.");
         return;
       }
+      // Tally each Airtable source's Lot Full / Inaccessibility cases (a record
+      // found in two tables counts under each).
+      const agg = new Map<string, SourceTally>();
+      for (const r of records) {
+        const origins = r.origins?.length ? r.origins : [r.source || "Airtable"];
+        for (const o of origins) {
+          const e = agg.get(o) ?? { name: o, lotFull: 0, inacc: 0 };
+          if (r.category === "lot_full") e.lotFull++;
+          else if (r.category === "inaccessibility") e.inacc++;
+          agg.set(o, e);
+        }
+      }
+      setSources([...agg.values()].sort((a, b) => b.lotFull + b.inacc - (a.lotFull + a.inacc)));
       setInternalRows(rows);
       setAnalyzed(true);
     } catch {
@@ -204,8 +231,8 @@ export default function GatherOneReport() {
             <span className="font-medium text-slate-700 dark:text-slate-200">
               Inaccessibility
             </span>{" "}
-            report. Internal issues (Customer Interactions, RingCentral
-            Conversations, Refunds &amp; Reimbursements) are gathered{" "}
+            report. Internal issues (from the RingCentral Conversations and
+            Refunds &amp; Reimbursements tables in Airtable) are gathered{" "}
             <span className="font-medium text-slate-700 dark:text-slate-200">
               automatically from Airtable
             </span>
@@ -324,6 +351,35 @@ export default function GatherOneReport() {
                 <path d="M10 11v6M14 11v6" />
               </svg>
             </button>
+          </div>
+        </div>
+      )}
+
+      {analyzed && sources.length > 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Internal Data Sources (Airtable)</h3>
+          <p className="mb-3 mt-0.5 text-xs text-slate-500 dark:text-slate-400">Lot Full &amp; Inaccessibility cases gathered from each connected table.</p>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase text-slate-400">
+                  <th className="py-1.5 pr-3">Source table</th>
+                  <th className="px-3 text-right">Lot Full</th>
+                  <th className="px-3 text-right">Inaccessibility</th>
+                  <th className="px-3 text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sources.map((s) => (
+                  <tr key={s.name} className="border-t border-slate-100 dark:border-slate-800">
+                    <td className="py-1.5 pr-3 font-medium text-slate-800 dark:text-slate-100">{s.name}</td>
+                    <td className="px-3 text-right tabular-nums">{s.lotFull}</td>
+                    <td className="px-3 text-right tabular-nums">{s.inacc}</td>
+                    <td className="px-3 text-right font-semibold tabular-nums">{s.lotFull + s.inacc}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
