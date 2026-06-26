@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import MultiFileUpload from "@/components/shared/MultiFileUpload";
 import DateRangeFilter from "@/components/shared/DateRangeFilter";
 import FacilityRecordsModal from "@/components/shared/FacilityRecordsModal";
@@ -24,7 +24,8 @@ import {
   MERGED_COLUMNS,
   MERGED_HEADERS,
 } from "@/lib/reports/merge";
-import { filterForCategory, type IssueCategory } from "@/lib/reports/filters";
+import { filterForCategory, categoryForReason, type IssueCategory } from "@/lib/reports/filters";
+import { toIsoDate } from "@/lib/reports/columns";
 import { formatCurrency, formatScore } from "@/lib/format";
 import {
   buildReportHtml,
@@ -70,6 +71,28 @@ function internalToMergedRows(
   }));
 }
 
+/** A stored SpotHero complaint from the Google Sheet (Drive). */
+interface StoredSpot {
+  rentalId: string;
+  facility: string;
+  date: string;
+  category: "lot_full" | "inaccessibility";
+}
+
+/** Convert stored SpotHero complaints into the analyzer's merged-row shape. */
+function storedSpotToRows(recs: StoredSpot[]): Record<string, string>[] {
+  return recs.map((r) => ({
+    __source: "spothero",
+    reason: r.category === "lot_full" ? "Lot Full" : "Inaccessibility",
+    rentalId: r.rentalId,
+    spot: r.facility,
+    starts: r.date,
+    state: "",
+    refund: "",
+    totalRemit: "",
+  }));
+}
+
 /** The current calendar month so far (1st → today) — the default date filter. */
 function thisMonthRange(): DateRange {
   const d = new Date();
@@ -90,6 +113,26 @@ export default function GatherOneReport() {
   const [analyzing, setAnalyzing] = useState(false);
   // Per-Airtable-source breakdown of internal cases (RingCentral, Refunds…).
   const [sources, setSources] = useState<SourceTally[]>([]);
+  // SpotHero complaints already stored in the Google Sheet (Drive) — gathered
+  // into every report, and shown as a count next to "Generate Report".
+  const [storedSpot, setStoredSpot] = useState<StoredSpot[]>([]);
+  const refreshStored = useCallback(() => {
+    fetch("/api/complaint-history?source=spothero")
+      .then((r) => r.json())
+      .then((j) => {
+        if (!Array.isArray(j?.complaints)) return;
+        setStoredSpot(
+          j.complaints.map((c: { rentalId?: string; facilityName?: string; complaintDate?: string; complaintType?: string }) => ({
+            rentalId: c.rentalId || "",
+            facility: c.facilityName || "",
+            date: c.complaintDate || "",
+            category: c.complaintType === "lot_full" ? "lot_full" : "inaccessibility",
+          })),
+        );
+      })
+      .catch(() => {});
+  }, []);
+  useEffect(() => { refreshStored(); }, [refreshStored]);
   // Canonical-facility → state (MA/IL/DC) map, used to fill in the state for
   // facilities whose uploaded rows carry none (e.g. call logs). Cached on the
   // server; fetched here with the Airtable PAT when this machine has one.
@@ -120,21 +163,25 @@ export default function GatherOneReport() {
   // (which scopes internal rows) is shown whenever internal rows are present.
   const hasInternal = internalRows.length > 0;
 
-  // Combine SpotHero CSV rows + internal Airtable rows into one merged dataset.
+  // Combine uploaded SpotHero CSV rows + SpotHero stored in Drive + internal
+  // Airtable rows into one merged dataset. Stored rows whose Rental ID is also
+  // in an uploaded CSV are dropped (the CSV row is richer — it carries refunds).
   const merged = useMemo<ParsedCsv | null>(() => {
     const spotheroRows = files.length
       ? mergeReportFiles(
           files.map((f) => ({ data: f, source: "spothero" as const })),
         ).rows
       : [];
-    if (spotheroRows.length === 0 && internalRows.length === 0) return null;
+    const uploadedIds = new Set(spotheroRows.map((r) => String(r.rentalId || "").trim()).filter(Boolean));
+    const storedRows = storedSpotToRows(storedSpot.filter((s) => !s.rentalId || !uploadedIds.has(s.rentalId.trim())));
+    if (spotheroRows.length === 0 && storedRows.length === 0 && internalRows.length === 0) return null;
     return {
       headers: [...MERGED_HEADERS],
-      rows: [...spotheroRows, ...internalRows],
+      rows: [...spotheroRows, ...storedRows, ...internalRows],
       fileName:
-        files.map((f) => f.fileName).join(", ") || "Internal issues (Airtable)",
+        files.map((f) => f.fileName).join(", ") || "Internal + stored SpotHero (Airtable/Drive)",
     };
-  }, [files, internalRows]);
+  }, [files, storedSpot, internalRows]);
 
   const result = useMemo<ReportResult | null>(() => {
     if (!merged || !analyzed) return null;
@@ -165,8 +212,8 @@ export default function GatherOneReport() {
     setFiles([]);
   }
 
-  // Pull internal issues from Airtable, combine with any uploaded SpotHero CSV,
-  // and generate the full report.
+  // Pull internal issues from Airtable + SpotHero stored in Drive, persist any
+  // freshly-uploaded SpotHero CSV to Drive, and generate the full report.
   async function generate() {
     setError(null);
     setAnalyzing(true);
@@ -178,25 +225,26 @@ export default function GatherOneReport() {
         typeof window !== "undefined"
           ? localStorage.getItem("airtablePat")
           : null;
-      const res = await fetch("/api/internal-issues?category=all", {
-        headers: pat ? { "x-airtable-pat": pat } : {},
-      });
-      const j = await res.json();
-      if (!res.ok || !j?.ok) {
-        setError(
-          j?.description || j?.error || "Could not load internal issues from Airtable.",
-        );
-        return;
+      const haveSpot = files.length > 0 || storedSpot.length > 0;
+
+      // Internal complaints (best-effort — don't block a SpotHero-only report).
+      let records: InternalRecord[] = [];
+      try {
+        const res = await fetch("/api/internal-issues?category=all", { headers: pat ? { "x-airtable-pat": pat } : {} });
+        const j = await res.json();
+        if (res.ok && j?.ok) records = j.records as InternalRecord[];
+        else if (!haveSpot) { setError(j?.description || j?.error || "Could not load internal issues from Airtable."); return; }
+      } catch {
+        if (!haveSpot) { setError("Could not load internal issues from Airtable."); return; }
       }
-      const records = j.records as InternalRecord[];
+
       const rows = internalToMergedRows(records);
-      if (rows.length === 0 && files.length === 0) {
-        setError("No internal Lot Full or Inaccessibility issues found in Airtable.");
+      if (rows.length === 0 && !haveSpot) {
+        setError("No Lot Full or Inaccessibility data found (internal, uploads, or stored SpotHero).");
         return;
       }
-      // Tally each Airtable source's Lot Full / Inaccessibility cases. Records
-      // are already de-duplicated by Rental ID, and each RID is attributed to a
-      // single (primary) table, so a duplicate RID is never counted twice.
+
+      // Tally each Airtable source's cases (deduped by Rental ID upstream).
       const agg = new Map<string, SourceTally>();
       for (const r of records) {
         const o = r.source || r.origins?.[0] || "Airtable";
@@ -208,6 +256,30 @@ export default function GatherOneReport() {
       setSources([...agg.values()].sort((a, b) => b.lotFull + b.inacc - (a.lotFull + a.inacc)));
       setInternalRows(rows);
       setAnalyzed(true);
+
+      // Persist any uploaded SpotHero CSV to the Google Sheet (Drive) — same as
+      // the Facility Progress Checker's upload — then refresh the stored count.
+      if (files.length) {
+        const spotheroRows = mergeReportFiles(files.map((f) => ({ data: f, source: "spothero" as const }))).rows;
+        const incidents = spotheroRows
+          .map((r) => {
+            const cat = categoryForReason(String(r.reason || ""));
+            const facility = String(r.spot || "").trim();
+            if ((cat !== "lot_full" && cat !== "inaccessibility") || !facility) return null;
+            return { facility, date: toIsoDate(String(r.starts || "")) ?? "", rentalId: String(r.rentalId || "").trim(), category: cat };
+          })
+          .filter((x): x is { facility: string; date: string; rentalId: string; category: "lot_full" | "inaccessibility" } => x !== null);
+        if (incidents.length) {
+          const uploadedBy = (typeof window !== "undefined" && localStorage.getItem("progressUserName")) || "Gather Data";
+          const fileName = files.map((f) => f.fileName).join(", ");
+          await fetch("/api/complaint-history", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...(pat ? { "x-airtable-pat": pat } : {}) },
+            body: JSON.stringify({ fileName, uploadedBy, incidents }),
+          }).catch(() => {});
+          refreshStored();
+        }
+      }
     } catch {
       setError("Something went wrong generating the report.");
     } finally {
@@ -257,7 +329,7 @@ export default function GatherOneReport() {
             }
           />
 
-          <div className="mt-4 flex items-center gap-3">
+          <div className="mt-4 flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={generate}
@@ -289,8 +361,11 @@ export default function GatherOneReport() {
                 ? "Generating…"
                 : files.length > 0
                   ? "Generate Full Report (SpotHero + Internal)"
-                  : "Generate Report (Internal)"}
+                  : "Generate Report"}
             </button>
+            <span className="text-sm text-slate-500 dark:text-slate-400">
+              <b className="text-slate-700 dark:text-slate-200">{storedSpot.length.toLocaleString()}</b> stored SpotHero complaint{storedSpot.length === 1 ? "" : "s"} in Drive will be included{files.length > 0 ? " (plus your uploaded CSV)" : ""}.
+            </span>
           </div>
 
           {error && (

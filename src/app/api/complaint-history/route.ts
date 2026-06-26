@@ -55,6 +55,19 @@ export async function GET(req: Request) {
     });
   }
 
+  // Lightweight mode: just the stored SpotHero complaints (from the Google
+  // Sheet) — no Airtable internal fetch. Used by the Gather Data report.
+  if (url.searchParams.get("source") === "spothero") {
+    return Response.json({
+      ok: true,
+      complaints: store.complaints,
+      uploads: store.uploads,
+      counts: { total: store.complaints.length, spotHero: store.complaints.length, internal: 0 },
+      internalError: null,
+      spotHeroError,
+    });
+  }
+
   let internal: ComplaintRecord[] = [];
   let internalError: string | null = null;
   if (pat) {
