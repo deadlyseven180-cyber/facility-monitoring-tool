@@ -262,70 +262,121 @@ function BiWeekly({ records }: { records: ComplaintRecord[] }) {
   // Start unselected so the 2nd dropdown stays disabled until the 1st is picked.
   const [a, setA] = useState("");
   const [b, setB] = useState("");
-  function pickA(v: string) { setA(v); if (v === b) setB(""); }
+  const [shown, setShown] = useState<{ label: string; recs: ComplaintRecord[] } | null>(null);
+  function pickA(v: string) { setA(v); if (v === b) setB(""); setShown(null); }
+  function pickB(v: string) { setB(v); setShown(null); }
   const desc = useMemo(() => [...series].reverse(), [series]);
   const pa = series.find((s) => s.key === a);
   const pb = series.find((s) => s.key === b);
-  const cmp = pa && pb ? compare(filterByKey(records, b), filterByKey(records, a)) : null;
+  const recA = useMemo(() => (a ? filterByKey(records, a) : []), [records, a]);
+  const recB = useMemo(() => (b ? filterByKey(records, b) : []), [records, b]);
+  const cmp = pa && pb ? compare(recB, recA) : null;
 
-  // Per-month P1 vs P2
-  const byMonth = useMemo(() => {
-    const m = new Map<string, { label: string; p1?: SeriesPoint; p2?: SeriesPoint }>();
-    for (const s of series) {
-      const yr = Math.floor(s.sort / 100), mo = Math.floor((s.sort % 100) / 10), bw = s.sort % 10;
-      const k = `${yr}-${mo}`;
-      const e = m.get(k) ?? { label: `${MONTHS[mo - 1]} ${yr}` };
-      if (bw === 1) e.p1 = s; else e.p2 = s;
-      m.set(k, e);
-    }
-    return [...m.values()].reverse();
-  }, [series]);
+  // The records behind the change: cases added (in the later period, not the
+  // earlier) for an increase, or resolved (in the earlier, not the later) for a
+  // reduction — matched by Rental ID.
+  const { delta, deltaLabel } = useMemo(() => {
+    if (!cmp) return { delta: [] as ComplaintRecord[], deltaLabel: "" };
+    const aIds = new Set(recA.map((r) => r.rentalId).filter(Boolean));
+    const bIds = new Set(recB.map((r) => r.rentalId).filter(Boolean));
+    if (cmp.dir === "up") return { delta: recB.filter((r) => !r.rentalId || !aIds.has(r.rentalId)), deltaLabel: "Increase — new cases" };
+    if (cmp.dir === "down") return { delta: recA.filter((r) => !r.rentalId || !bIds.has(r.rentalId)), deltaLabel: "Reduction — resolved cases" };
+    return { delta: [] as ComplaintRecord[], deltaLabel: "No change" };
+  }, [cmp, recA, recB]);
+
+  // Per-facility movement between the two periods.
+  const facMove = useMemo(() => {
+    if (!cmp) return [] as { facility: string; prev: number; cur: number; diff: number }[];
+    const m = new Map<string, { prev: number; cur: number }>();
+    for (const r of recA) { const e = m.get(r.facilityName) ?? { prev: 0, cur: 0 }; e.prev++; m.set(r.facilityName, e); }
+    for (const r of recB) { const e = m.get(r.facilityName) ?? { prev: 0, cur: 0 }; e.cur++; m.set(r.facilityName, e); }
+    return [...m.entries()].map(([facility, v]) => ({ facility, ...v, diff: v.cur - v.prev })).filter((x) => x.diff !== 0).sort((x, y) => y.diff - x.diff);
+  }, [cmp, recA, recB]);
+
+  const ridTitle = (recs: ComplaintRecord[]) => {
+    const ids = recs.map((r) => r.rentalId || "(no RID)");
+    return `Rental IDs (${ids.length}): ${ids.slice(0, 40).join(", ")}${ids.length > 40 ? `, …+${ids.length - 40} more` : ""}`;
+  };
 
   return (
     <div className="space-y-5">
       <Card title="Bi-Weekly Comparison Engine">
+        <p className="mb-3 -mt-1 text-xs text-slate-500 dark:text-slate-400">Compare any two bi-weekly periods. <b>Hover</b> a card to preview its Rental IDs; <b>click</b> to list them below.</p>
         <div className="flex flex-wrap items-end gap-2">
           <Sel v={a} on={pickA} opts={[["", "Select first period…"], ...desc.map((s) => [s.key, s.range] as [string, string])]} />
           <span className="pb-2 text-slate-400">vs</span>
-          <Sel v={b} on={setB} disabled={!a} opts={[["", a ? "Select second period…" : "Pick the first period"], ...desc.filter((s) => s.key !== a).map((s) => [s.key, s.range] as [string, string])]} />
+          <Sel v={b} on={pickB} disabled={!a} opts={[["", a ? "Select second period…" : "Pick the first period"], ...desc.filter((s) => s.key !== a).map((s) => [s.key, s.range] as [string, string])]} />
         </div>
         {cmp && pa && pb ? (
-          <div className="mt-4 grid grid-cols-3 gap-3">
-            <Mini label={pa.range} value={cmp.previous} />
-            <Mini label={pb.range} value={cmp.current} />
-            <Mini label={cmp.dir === "down" ? "Reduced by" : cmp.dir === "up" ? "Increased by" : "No change"} value={Math.abs(cmp.diff)} tone={cmp.dir === "down" ? "good" : cmp.dir === "up" ? "bad" : undefined} arrow={cmp.dir} />
-          </div>
+          <>
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <CmpCard label={pa.range} sub="Earlier period" value={cmp.previous} title={ridTitle(recA)} onClick={() => setShown({ label: `${pa.range} · ${recA.length} cases`, recs: recA })} />
+              <CmpCard label={pb.range} sub="Later period" value={cmp.current} title={ridTitle(recB)} onClick={() => setShown({ label: `${pb.range} · ${recB.length} cases`, recs: recB })} />
+              <CmpCard label={cmp.dir === "down" ? "Reduced by" : cmp.dir === "up" ? "Increased by" : "No change"} sub={deltaLabel || "change"} value={Math.abs(cmp.diff)} tone={cmp.dir === "down" ? "good" : cmp.dir === "up" ? "bad" : undefined} arrow={cmp.dir} title={ridTitle(delta)} onClick={() => delta.length && setShown({ label: `${deltaLabel} · ${delta.length}`, recs: delta })} />
+            </div>
+
+            {shown && (
+              <div className="mt-4 rounded-xl border border-slate-200 dark:border-slate-800">
+                <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+                  <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Rental IDs — {shown.label}</p>
+                  <button type="button" onClick={() => setShown(null)} className="text-xs font-medium text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">Close ✕</button>
+                </div>
+                <div className="max-h-[320px] overflow-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="sticky top-0 bg-white dark:bg-slate-900"><tr className="text-left text-xs uppercase text-slate-400"><th className="px-3 py-2">Rental ID</th><th className="px-3">Date</th><th className="px-3">Facility</th><th className="px-3">Type</th></tr></thead>
+                    <tbody>
+                      {shown.recs.map((r, i) => (
+                        <tr key={`${r.rentalId || "x"}-${i}`} className="border-t border-slate-100 dark:border-slate-800">
+                          <td className="px-3 py-1.5 font-medium text-slate-800 dark:text-slate-100">{r.rentalId || "—"}</td>
+                          <td className="px-3 whitespace-nowrap text-slate-500">{r.complaintDate}</td>
+                          <td className="max-w-[220px] truncate px-3 text-slate-600 dark:text-slate-300" title={r.facilityName}>{r.facilityName}</td>
+                          <td className="px-3 whitespace-nowrap text-slate-500">{r.complaintType === "lot_full" ? "Lot Full" : "Inaccessibility"}</td>
+                        </tr>
+                      ))}
+                      {shown.recs.length === 0 && <tr><td colSpan={4} className="px-3 py-4 text-center text-slate-400">No rental IDs.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </>
         ) : (
           <p className="mt-3 text-sm text-slate-400">Select two periods to compare.</p>
         )}
       </Card>
-      <Card title="Each Month — Period 1 (1–14) vs Period 2 (15–end)">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr className="text-left text-xs uppercase text-slate-400"><th className="py-2 pr-3">Month</th><th className="px-2">Period 1</th><th className="px-2">Period 2</th><th className="px-2">Progress</th></tr></thead>
-            <tbody>
-              {byMonth.map((row, i) => {
-                const c1 = row.p1?.counts.total ?? 0, c2 = row.p2?.counts.total ?? 0;
-                const diff = c2 - c1;
-                return (
-                  <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
-                    <td className="py-2 pr-3 font-medium text-slate-700 dark:text-slate-200">{row.label}</td>
-                    <td className="px-2 tabular-nums">{c1}</td>
-                    <td className="px-2 tabular-nums">{c2}</td>
-                    <td className="px-2 tabular-nums">
-                      <span className={diff < 0 ? "text-emerald-600 dark:text-emerald-400" : diff > 0 ? "text-rose-600 dark:text-rose-400" : "text-slate-400"}>
-                        {c1 === 0 && c2 === 0 ? "—" : diff < 0 ? `▼ ${Math.abs(diff)} fewer` : diff > 0 ? `▲ ${diff} more` : "no change"}
-                      </span>
-                    </td>
+
+      {cmp && facMove.length > 0 && (
+        <Card title="Facility Movement (between the two periods)">
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead><tr className="text-left text-xs uppercase text-slate-400"><th className="py-2 pr-3">Facility</th><th className="px-2 text-right">Earlier</th><th className="px-2 text-right">Later</th><th className="px-2 text-right">Change</th></tr></thead>
+              <tbody>
+                {facMove.map((f) => (
+                  <tr key={f.facility} className="border-t border-slate-100 dark:border-slate-800">
+                    <td className="py-1.5 pr-3 font-medium text-slate-700 dark:text-slate-200">{f.facility}</td>
+                    <td className="px-2 text-right tabular-nums text-slate-500">{f.prev}</td>
+                    <td className="px-2 text-right tabular-nums text-slate-500">{f.cur}</td>
+                    <td className={`px-2 text-right font-semibold tabular-nums ${f.diff < 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>{f.diff < 0 ? `▼ ${Math.abs(f.diff)}` : `▲ ${f.diff}`}</td>
                   </tr>
-                );
-              })}
-              {byMonth.length === 0 && <tr><td colSpan={4} className="py-6 text-center text-slate-400">No data yet.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
     </div>
+  );
+}
+
+/** Clickable comparison card — hover shows Rental IDs (title), click lists them. */
+function CmpCard({ label, sub, value, tone, arrow, title, onClick }: { label: string; sub?: string; value: number; tone?: "good" | "bad"; arrow?: "up" | "down" | "flat"; title?: string; onClick?: () => void }) {
+  const color = tone === "good" ? "text-emerald-600 dark:text-emerald-400" : tone === "bad" ? "text-rose-600 dark:text-rose-400" : "text-slate-800 dark:text-slate-100";
+  return (
+    <button type="button" onClick={onClick} title={title} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left transition-colors hover:border-indigo-300 hover:bg-indigo-50/50 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-indigo-500/40 dark:hover:bg-indigo-500/10">
+      <p className="text-[11px] uppercase tracking-wide text-slate-400">{label}</p>
+      <p className={`mt-1 text-2xl font-bold ${color}`}>{arrow === "down" ? "▼ " : arrow === "up" ? "▲ " : ""}{value}</p>
+      {sub && <p className="mt-0.5 text-[11px] text-slate-400">{sub}</p>}
+    </button>
   );
 }
 function filterByKey(records: ComplaintRecord[], biweeklyKeyStr: string): ComplaintRecord[] {
