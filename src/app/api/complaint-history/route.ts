@@ -1,9 +1,9 @@
-import { readStore, writeStore } from "@/lib/complaints/store";
+import { readStore, appendComplaints, appendUpload } from "@/lib/complaints/store";
 import { fetchInternalComplaints, getDirectory, resolveFacilityId } from "@/lib/complaints/internal";
 import { periodOf } from "@/lib/complaints/period";
 import { complaintKey } from "@/lib/complaints/aggregate";
 import { readOverlay } from "@/lib/complaints/overlay";
-import type { ComplaintRecord, RawIncident, UploadLog } from "@/lib/complaints/types";
+import type { ComplaintRecord, HistoryStore, RawIncident, UploadLog } from "@/lib/complaints/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -27,14 +27,22 @@ function toCsv(rows: ComplaintRecord[]): string {
 }
 
 /**
- * GET — combined complaint history: stored SpotHero + live Internal (Airtable),
- * de-duplicated by Rental ID. `?export=csv|json` downloads the stored SpotHero
- * history (for transfer to Airtable).
+ * GET — combined complaint history: SpotHero (stored in Airtable) + live
+ * Internal (Refunds & Reimbursements). `?export=csv|json` downloads the stored
+ * SpotHero history.
  */
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const exp = url.searchParams.get("export");
-  const store = await readStore();
+  const pat = getPat(req);
+
+  let store: HistoryStore = { complaints: [], uploads: [] };
+  let spotHeroError: string | null = null;
+  try {
+    store = await readStore(pat);
+  } catch (e) {
+    spotHeroError = e instanceof Error ? e.message : "spothero load failed";
+  }
 
   if (exp === "csv") {
     return new Response(toCsv(store.complaints), {
@@ -47,7 +55,6 @@ export async function GET(req: Request) {
     });
   }
 
-  const pat = getPat(req);
   let internal: ComplaintRecord[] = [];
   let internalError: string | null = null;
   if (pat) {
@@ -61,11 +68,7 @@ export async function GET(req: Request) {
     internalError = "no_pat";
   }
 
-  // SpotHero history (de-duped at upload) + live internal (de-duped inside
-  // gatherInternal). We do NOT de-dupe across the two sources, so the internal
-  // count here is the full internal set — identical to the Gather Data report's
-  // internal count. (SpotHero and internal are separate complaint channels; a
-  // Rental ID present in both is two distinct interactions.)
+  // SpotHero history (de-duped at upload, stored in Airtable) + live internal.
   const combined: ComplaintRecord[] = [...store.complaints, ...internal];
 
   // Apply the per-complaint overlay (root cause + resolution status/date).
@@ -88,10 +91,14 @@ export async function GET(req: Request) {
       internal: combined.filter((c) => c.source === "Internal").length,
     },
     internalError,
+    spotHeroError,
   });
 }
 
-/** POST — ingest parsed SpotHero incidents, dedup by Rental ID, log the upload. */
+/**
+ * POST — ingest parsed SpotHero incidents, de-dupe by Rental ID against the
+ * Airtable history, store the new rows + an upload-log entry in Airtable.
+ */
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as {
     fileName?: string; uploadedBy?: string; incidents?: RawIncident[];
@@ -100,14 +107,30 @@ export async function POST(req: Request) {
   if (incidents.length === 0) return Response.json({ error: "no_incidents" }, { status: 400 });
 
   const pat = getPat(req);
-  const dir = pat ? await getDirectory(pat).catch(() => ({})) : {};
-  const store = await readStore();
+  if (!pat) {
+    return Response.json(
+      { error: "missing_pat", description: "Airtable token required to store uploads (set it in Settings)." },
+      { status: 400 },
+    );
+  }
+
+  const dir = await getDirectory(pat).catch(() => ({}));
+  let store: HistoryStore;
+  try {
+    store = await readStore(pat);
+  } catch (e) {
+    return Response.json(
+      { error: "load_failed", description: e instanceof Error ? e.message : "could not read existing history" },
+      { status: 502 },
+    );
+  }
 
   const ids = new Set(store.complaints.filter((c) => c.rentalId).map((c) => c.rentalId));
   const blankSigs = new Set(
     store.complaints.filter((c) => !c.rentalId).map((c) => `${c.facilityName}|${c.complaintDate}|${c.complaintType}`),
   );
   const now = new Date().toISOString();
+  const newRecords: ComplaintRecord[] = [];
   let added = 0, skipped = 0;
 
   for (const inc of incidents) {
@@ -123,7 +146,7 @@ export async function POST(req: Request) {
       if (blankSigs.has(sig)) { skipped++; continue; }
       blankSigs.add(sig);
     }
-    store.complaints.push({
+    newRecords.push({
       rentalId,
       facilityName: inc.facility,
       facilityId: resolveFacilityId(dir, inc.facility),
@@ -149,7 +172,16 @@ export async function POST(req: Request) {
     newRecordsAdded: added,
     duplicateRecordsSkipped: skipped,
   };
-  store.uploads.unshift(log);
-  await writeStore(store);
+
+  try {
+    await appendComplaints(pat, newRecords, log.uploadedBy, log.fileName);
+    await appendUpload(pat, log);
+  } catch (e) {
+    return Response.json(
+      { error: "store_failed", description: e instanceof Error ? e.message : "could not store to Airtable" },
+      { status: 502 },
+    );
+  }
+
   return Response.json({ ok: true, log });
 }
