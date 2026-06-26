@@ -14,6 +14,9 @@ interface SidebarProps {
   bottomItems?: NavItem[];
   activeId: string;
   onSelect: (id: string) => void;
+  /** Mobile drawer open state. */
+  open?: boolean;
+  onClose?: () => void;
 }
 
 function NavButton({
@@ -58,9 +61,19 @@ export default function Sidebar({
   bottomItems = [],
   activeId,
   onSelect,
+  open = false,
+  onClose,
 }: SidebarProps) {
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+    <>
+      {/* Mobile backdrop */}
+      <div
+        onClick={onClose}
+        className={`fixed inset-0 z-30 bg-slate-900/40 transition-opacity lg:hidden ${open ? "opacity-100" : "pointer-events-none opacity-0"}`}
+      />
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 flex h-full w-64 shrink-0 transform flex-col border-r border-slate-200 bg-white transition-transform duration-200 dark:border-slate-800 dark:bg-slate-900 lg:static lg:z-auto lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}
+      >
       <div className="flex items-center gap-3 px-5 py-5">
         <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-sm font-bold text-white shadow-sm">
           YSR
@@ -107,6 +120,7 @@ export default function Sidebar({
           v0.4 · YourSpotRented
         </p>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }

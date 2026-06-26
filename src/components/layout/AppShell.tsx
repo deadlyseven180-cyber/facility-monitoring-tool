@@ -78,6 +78,7 @@ const BOTTOM_ITEMS: NavItem[] = [
 
 export default function AppShell() {
   const [activeId, setActiveId] = useState<string>("gather");
+  const [navOpen, setNavOpen] = useState(false);
   const activeLabel =
     [...NAV_ITEMS, ...BOTTOM_ITEMS].find((i) => i.id === activeId)?.label ??
     "Workspace";
@@ -105,12 +106,14 @@ export default function AppShell() {
         items={NAV_ITEMS}
         bottomItems={BOTTOM_ITEMS}
         activeId={activeId}
-        onSelect={setActiveId}
+        onSelect={(id) => { setActiveId(id); setNavOpen(false); }}
+        open={navOpen}
+        onClose={() => setNavOpen(false)}
       />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <TopBar title={activeLabel} />
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <TopBar title={activeLabel} onMenu={() => setNavOpen(true)} />
         <main className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-7xl px-8 py-8">{renderTool()}</div>
+          <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8 lg:py-8">{renderTool()}</div>
         </main>
       </div>
     </div>
