@@ -1,146 +1,129 @@
-// Storage for the SpotHero complaint history + upload log — backed by Airtable
-// so uploads persist permanently and auto-load on every device/deploy.
-//   • "SpotHero Complaints"  (tblVtwE3dRIR0d0kr) — one row per complaint
-//   • "SpotHero Upload Log"  (tblIkWbgDbb2z6iuI) — one row per upload
-// Internal complaints are NOT stored here (they stay live from Refunds &
-// Reimbursements via internal.ts).
+// Storage for the SpotHero complaint history + upload log — backed by a Supabase
+// (Postgres) database so uploads persist permanently and auto-load on every
+// device/deploy, independent of any one computer.
+//   • public.spothero_complaints  — one row per complaint
+//   • public.spothero_upload_log  — one row per upload
+// Accessed server-side via the PostgREST API using the service-role key
+// (SUPABASE_URL + SUPABASE_SERVICE_KEY env vars). Internal complaints are NOT
+// stored here (they stay live from Refunds & Reimbursements via internal.ts).
 
 import type { ComplaintRecord, HistoryStore, UploadLog } from "./types";
 
-const BASE_ID = "app9iYUN8J3z2wjXN";
-const COMPLAINTS_TABLE = "tblVtwE3dRIR0d0kr";
-const UPLOADS_TABLE = "tblIkWbgDbb2z6iuI";
+const SUPABASE_URL = process.env.SUPABASE_URL || "";
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || "";
+const COMPLAINTS = "spothero_complaints";
+const UPLOADS = "spothero_upload_log";
 
-interface AtRecord { id: string; fields: Record<string, unknown> }
-
-function str(v: unknown): string {
-  if (v == null) return "";
-  if (typeof v === "object" && "name" in (v as object)) return String((v as { name: string }).name);
-  return String(v);
+function configured(): boolean {
+  return Boolean(SUPABASE_URL && SUPABASE_KEY);
+}
+function headers(extra?: Record<string, string>): Record<string, string> {
+  return { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json", ...(extra || {}) };
+}
+function s(v: unknown): string {
+  return v == null ? "" : String(v);
 }
 
-/** Read every record from a table (paginated). */
-async function atList(pat: string, table: string, fields: string[]): Promise<AtRecord[]> {
-  const out: AtRecord[] = [];
-  let offset: string | undefined;
-  do {
-    const url = new URL(`https://api.airtable.com/v0/${BASE_ID}/${table}`);
-    url.searchParams.set("pageSize", "100");
-    for (const f of fields) url.searchParams.append("fields[]", f);
-    if (offset) url.searchParams.set("offset", offset);
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${pat}` }, cache: "no-store" });
-    if (!res.ok) throw new Error(`Airtable ${res.status}: ${await res.text()}`);
-    const data = (await res.json()) as { records: AtRecord[]; offset?: string };
-    out.push(...data.records);
-    offset = data.offset;
-  } while (offset);
+/** Read every row from a table (paginated). */
+async function selectAll(table: string): Promise<Record<string, unknown>[]> {
+  const out: Record<string, unknown>[] = [];
+  const lim = 1000;
+  let offset = 0;
+  for (;;) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*&order=id.asc&limit=${lim}&offset=${offset}`, {
+      headers: headers(),
+      cache: "no-store",
+    });
+    if (!res.ok) throw new Error(`Supabase ${res.status}: ${await res.text()}`);
+    const batch = (await res.json()) as Record<string, unknown>[];
+    out.push(...batch);
+    if (batch.length < lim) break;
+    offset += lim;
+  }
   return out;
 }
 
-/** Create records in batches of 10 (Airtable's per-request limit). */
-async function atCreate(pat: string, table: string, rows: { fields: Record<string, unknown> }[]): Promise<void> {
-  for (let i = 0; i < rows.length; i += 10) {
-    const batch = rows.slice(i, i + 10);
-    const res = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${table}`, {
+/** Insert rows in batches. */
+async function insert(table: string, rows: Record<string, unknown>[]): Promise<void> {
+  for (let i = 0; i < rows.length; i += 500) {
+    const batch = rows.slice(i, i + 500);
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${pat}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ records: batch, typecast: true }),
+      headers: headers({ Prefer: "return=minimal" }),
+      body: JSON.stringify(batch),
     });
-    if (!res.ok) throw new Error(`Airtable create ${res.status}: ${await res.text()}`);
+    if (!res.ok) throw new Error(`Supabase insert ${res.status}: ${await res.text()}`);
   }
 }
 
-const COMPLAINT_FIELDS = [
-  "Rental ID", "Facility Name", "Facility ID", "Complaint Type", "Complaint Date",
-  "Source", "Resolution Status", "Upload Date", "Reporting Year", "Reporting Month", "Reporting Biweekly",
-];
-const UPLOAD_FIELDS = ["File Name", "Upload Date", "Uploaded By", "Total Records", "New Records Added", "Duplicates Skipped"];
+/** Load all stored SpotHero complaints + the upload log. */
+export async function readStore(): Promise<HistoryStore> {
+  if (!configured()) return { complaints: [], uploads: [] };
+  const [crows, urows] = await Promise.all([selectAll(COMPLAINTS), selectAll(UPLOADS)]);
 
-/** Load all stored SpotHero complaints + the upload log from Airtable. */
-export async function readStore(pat: string): Promise<HistoryStore> {
-  if (!pat) return { complaints: [], uploads: [] };
-  const [crecs, urecs] = await Promise.all([
-    atList(pat, COMPLAINTS_TABLE, COMPLAINT_FIELDS),
-    atList(pat, UPLOADS_TABLE, UPLOAD_FIELDS),
-  ]);
+  const complaints: ComplaintRecord[] = crows.map((r) => ({
+    rentalId: s(r.rental_id),
+    facilityName: s(r.facility_name),
+    facilityId: s(r.facility_id),
+    complaintType: s(r.complaint_type) === "lot_full" ? "lot_full" : "inaccessibility",
+    complaintDate: s(r.complaint_date),
+    source: "SpotHero",
+    resolutionStatus: s(r.resolution_status) || "Open",
+    notes: "",
+    uploadDate: s(r.upload_date),
+    reportingYear: Number(r.reporting_year) || 0,
+    reportingMonth: Number(r.reporting_month) || 0,
+    reportingBiweekly: Number(r.reporting_biweekly) === 2 ? 2 : 1,
+  }));
 
-  const complaints: ComplaintRecord[] = crecs.map((r) => {
-    const f = r.fields;
-    return {
-      rentalId: str(f["Rental ID"]),
-      facilityName: str(f["Facility Name"]),
-      facilityId: str(f["Facility ID"]),
-      complaintType: str(f["Complaint Type"]) === "Lot Full" ? "lot_full" : "inaccessibility",
-      complaintDate: str(f["Complaint Date"]),
-      source: "SpotHero",
-      resolutionStatus: str(f["Resolution Status"]) || "Open",
-      notes: "",
-      uploadDate: str(f["Upload Date"]),
-      reportingYear: Number(f["Reporting Year"]) || 0,
-      reportingMonth: Number(f["Reporting Month"]) || 0,
-      reportingBiweekly: Number(f["Reporting Biweekly"]) === 2 ? 2 : 1,
-    };
-  });
-
-  const uploads: UploadLog[] = urecs
-    .map((r) => {
-      const f = r.fields;
-      return {
-        id: r.id,
-        fileName: str(f["File Name"]),
-        uploadDate: str(f["Upload Date"]),
-        uploadedBy: str(f["Uploaded By"]),
-        totalRecords: Number(f["Total Records"]) || 0,
-        newRecordsAdded: Number(f["New Records Added"]) || 0,
-        duplicateRecordsSkipped: Number(f["Duplicates Skipped"]) || 0,
-      };
-    })
+  const uploads: UploadLog[] = urows
+    .map((r) => ({
+      id: s(r.id),
+      fileName: s(r.file_name),
+      uploadDate: s(r.upload_date),
+      uploadedBy: s(r.uploaded_by),
+      totalRecords: Number(r.total_records) || 0,
+      newRecordsAdded: Number(r.new_records_added) || 0,
+      duplicateRecordsSkipped: Number(r.duplicates_skipped) || 0,
+    }))
     .sort((a, b) => (b.uploadDate || "").localeCompare(a.uploadDate || ""));
 
   return { complaints, uploads };
 }
 
-/** Append newly-uploaded SpotHero complaints to Airtable. */
-export async function appendComplaints(
-  pat: string,
-  records: ComplaintRecord[],
-  uploadedBy: string,
-  fileName: string,
-): Promise<void> {
-  if (!pat || records.length === 0) return;
+/** Append newly-uploaded SpotHero complaints. */
+export async function appendComplaints(records: ComplaintRecord[], uploadedBy: string, fileName: string): Promise<void> {
+  if (records.length === 0) return;
+  if (!configured()) throw new Error("Supabase not configured (SUPABASE_URL / SUPABASE_SERVICE_KEY).");
   const rows = records.map((r) => ({
-    fields: {
-      "Rental ID": r.rentalId || "",
-      "Facility Name": r.facilityName,
-      "Facility ID": r.facilityId || "",
-      "Complaint Type": r.complaintType === "lot_full" ? "Lot Full" : "Inaccessibility",
-      "Complaint Date": r.complaintDate,
-      "Source": "SpotHero",
-      "Resolution Status": r.resolutionStatus || "Open",
-      "Uploaded By": uploadedBy || "",
-      "File Name": fileName || "",
-      "Upload Date": r.uploadDate,
-      "Reporting Year": r.reportingYear,
-      "Reporting Month": r.reportingMonth,
-      "Reporting Biweekly": r.reportingBiweekly,
-    },
+    rental_id: r.rentalId || "",
+    facility_name: r.facilityName,
+    facility_id: r.facilityId || "",
+    complaint_type: r.complaintType,
+    complaint_date: r.complaintDate || null,
+    source: "SpotHero",
+    resolution_status: r.resolutionStatus || "Open",
+    uploaded_by: uploadedBy || "",
+    file_name: fileName || "",
+    upload_date: r.uploadDate,
+    reporting_year: r.reportingYear,
+    reporting_month: r.reportingMonth,
+    reporting_biweekly: r.reportingBiweekly,
   }));
-  await atCreate(pat, COMPLAINTS_TABLE, rows);
+  await insert(COMPLAINTS, rows);
 }
 
 /** Record one upload in the upload-log table. */
-export async function appendUpload(pat: string, log: UploadLog): Promise<void> {
-  if (!pat) return;
-  await atCreate(pat, UPLOADS_TABLE, [
+export async function appendUpload(log: UploadLog): Promise<void> {
+  if (!configured()) throw new Error("Supabase not configured.");
+  await insert(UPLOADS, [
     {
-      fields: {
-        "File Name": log.fileName,
-        "Upload Date": log.uploadDate,
-        "Uploaded By": log.uploadedBy,
-        "Total Records": log.totalRecords,
-        "New Records Added": log.newRecordsAdded,
-        "Duplicates Skipped": log.duplicateRecordsSkipped,
-      },
+      file_name: log.fileName,
+      upload_date: log.uploadDate,
+      uploaded_by: log.uploadedBy,
+      total_records: log.totalRecords,
+      new_records_added: log.newRecordsAdded,
+      duplicates_skipped: log.duplicateRecordsSkipped,
     },
   ]);
 }

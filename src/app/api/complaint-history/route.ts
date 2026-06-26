@@ -39,7 +39,7 @@ export async function GET(req: Request) {
   let store: HistoryStore = { complaints: [], uploads: [] };
   let spotHeroError: string | null = null;
   try {
-    store = await readStore(pat);
+    store = await readStore();
   } catch (e) {
     spotHeroError = e instanceof Error ? e.message : "spothero load failed";
   }
@@ -106,18 +106,13 @@ export async function POST(req: Request) {
   const incidents = Array.isArray(body.incidents) ? body.incidents : [];
   if (incidents.length === 0) return Response.json({ error: "no_incidents" }, { status: 400 });
 
+  // Airtable PAT is only used to resolve facility IDs (best-effort); storage
+  // itself goes to Supabase via its own service key.
   const pat = getPat(req);
-  if (!pat) {
-    return Response.json(
-      { error: "missing_pat", description: "Airtable token required to store uploads (set it in Settings)." },
-      { status: 400 },
-    );
-  }
-
-  const dir = await getDirectory(pat).catch(() => ({}));
+  const dir = pat ? await getDirectory(pat).catch(() => ({})) : {};
   let store: HistoryStore;
   try {
-    store = await readStore(pat);
+    store = await readStore();
   } catch (e) {
     return Response.json(
       { error: "load_failed", description: e instanceof Error ? e.message : "could not read existing history" },
@@ -174,11 +169,11 @@ export async function POST(req: Request) {
   };
 
   try {
-    await appendComplaints(pat, newRecords, log.uploadedBy, log.fileName);
-    await appendUpload(pat, log);
+    await appendComplaints(newRecords, log.uploadedBy, log.fileName);
+    await appendUpload(log);
   } catch (e) {
     return Response.json(
-      { error: "store_failed", description: e instanceof Error ? e.message : "could not store to Airtable" },
+      { error: "store_failed", description: e instanceof Error ? e.message : "could not store to Supabase" },
       { status: 502 },
     );
   }
