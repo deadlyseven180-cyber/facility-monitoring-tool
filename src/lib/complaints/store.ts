@@ -1,129 +1,109 @@
-// Storage for the SpotHero complaint history + upload log — backed by a Supabase
-// (Postgres) database so uploads persist permanently and auto-load on every
-// device/deploy, independent of any one computer.
-//   • public.spothero_complaints  — one row per complaint
-//   • public.spothero_upload_log  — one row per upload
-// Accessed server-side via the PostgREST API using the service-role key
-// (SUPABASE_URL + SUPABASE_SERVICE_KEY env vars). Internal complaints are NOT
-// stored here (they stay live from Refunds & Reimbursements via internal.ts).
+// Storage for the SpotHero complaint history + upload log — backed by a Google
+// Sheet in the user's Google Drive, via a Google Apps Script Web App that runs
+// as the user (so it has Drive access without the app holding Google creds).
+//   • "Complaints" tab  — one row per complaint
+//   • "UploadLog" tab   — one row per upload
+// Configured with GSHEET_WEBAPP_URL (+ optional GSHEET_TOKEN shared secret).
+// Internal complaints are NOT stored here (they stay live from Refunds &
+// Reimbursements via internal.ts).
 
 import type { ComplaintRecord, HistoryStore, UploadLog } from "./types";
 
-const SUPABASE_URL = process.env.SUPABASE_URL || "";
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || "";
-const COMPLAINTS = "spothero_complaints";
-const UPLOADS = "spothero_upload_log";
+const WEBAPP_URL = process.env.GSHEET_WEBAPP_URL || "";
+const TOKEN = process.env.GSHEET_TOKEN || "";
 
 function configured(): boolean {
-  return Boolean(SUPABASE_URL && SUPABASE_KEY);
+  return Boolean(WEBAPP_URL);
 }
-function headers(extra?: Record<string, string>): Record<string, string> {
-  return { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json", ...(extra || {}) };
+function num(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
 }
 function s(v: unknown): string {
   return v == null ? "" : String(v);
 }
 
-/** Read every row from a table (paginated). */
-async function selectAll(table: string): Promise<Record<string, unknown>[]> {
-  const out: Record<string, unknown>[] = [];
-  const lim = 1000;
-  let offset = 0;
-  for (;;) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*&order=id.asc&limit=${lim}&offset=${offset}`, {
-      headers: headers(),
-      cache: "no-store",
-    });
-    if (!res.ok) throw new Error(`Supabase ${res.status}: ${await res.text()}`);
-    const batch = (await res.json()) as Record<string, unknown>[];
-    out.push(...batch);
-    if (batch.length < lim) break;
-    offset += lim;
-  }
-  return out;
+async function callGet(): Promise<{ complaints: unknown[]; uploads: unknown[] }> {
+  const url = new URL(WEBAPP_URL);
+  if (TOKEN) url.searchParams.set("token", TOKEN);
+  const res = await fetch(url.toString(), { cache: "no-store", redirect: "follow" });
+  if (!res.ok) throw new Error(`Google Sheet read ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const j = (await res.json()) as { ok?: boolean; error?: string; complaints?: unknown[]; uploads?: unknown[] };
+  if (j.ok === false) throw new Error(j.error || "sheet read failed");
+  return { complaints: Array.isArray(j.complaints) ? j.complaints : [], uploads: Array.isArray(j.uploads) ? j.uploads : [] };
 }
 
-/** Insert rows in batches. */
-async function insert(table: string, rows: Record<string, unknown>[]): Promise<void> {
-  for (let i = 0; i < rows.length; i += 500) {
-    const batch = rows.slice(i, i + 500);
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
-      method: "POST",
-      headers: headers({ Prefer: "return=minimal" }),
-      body: JSON.stringify(batch),
-    });
-    if (!res.ok) throw new Error(`Supabase insert ${res.status}: ${await res.text()}`);
-  }
+async function callPost(payload: Record<string, unknown>): Promise<void> {
+  const res = await fetch(WEBAPP_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token: TOKEN, ...payload }),
+    redirect: "follow",
+  });
+  if (!res.ok) throw new Error(`Google Sheet write ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const j = (await res.json().catch(() => ({ ok: false, error: "non-JSON response" }))) as { ok?: boolean; error?: string };
+  if (!j.ok) throw new Error(j.error || "sheet write failed");
 }
 
-/** Load all stored SpotHero complaints + the upload log. */
+/** Load all stored SpotHero complaints + the upload log from the Google Sheet. */
 export async function readStore(): Promise<HistoryStore> {
   if (!configured()) return { complaints: [], uploads: [] };
-  const [crows, urows] = await Promise.all([selectAll(COMPLAINTS), selectAll(UPLOADS)]);
+  const data = await callGet();
 
-  const complaints: ComplaintRecord[] = crows.map((r) => ({
-    rentalId: s(r.rental_id),
-    facilityName: s(r.facility_name),
-    facilityId: s(r.facility_id),
-    complaintType: s(r.complaint_type) === "lot_full" ? "lot_full" : "inaccessibility",
-    complaintDate: s(r.complaint_date),
+  const complaints: ComplaintRecord[] = (data.complaints as Record<string, unknown>[]).map((r) => ({
+    rentalId: s(r.rentalId),
+    facilityName: s(r.facilityName),
+    facilityId: s(r.facilityId),
+    complaintType: s(r.complaintType) === "lot_full" ? "lot_full" : "inaccessibility",
+    complaintDate: s(r.complaintDate),
     source: "SpotHero",
-    resolutionStatus: s(r.resolution_status) || "Open",
+    resolutionStatus: s(r.resolutionStatus) || "Open",
     notes: "",
-    uploadDate: s(r.upload_date),
-    reportingYear: Number(r.reporting_year) || 0,
-    reportingMonth: Number(r.reporting_month) || 0,
-    reportingBiweekly: Number(r.reporting_biweekly) === 2 ? 2 : 1,
+    uploadDate: s(r.uploadDate),
+    reportingYear: num(r.reportingYear),
+    reportingMonth: num(r.reportingMonth),
+    reportingBiweekly: num(r.reportingBiweekly) === 2 ? 2 : 1,
   }));
 
-  const uploads: UploadLog[] = urows
+  const uploads: UploadLog[] = (data.uploads as Record<string, unknown>[])
     .map((r) => ({
       id: s(r.id),
-      fileName: s(r.file_name),
-      uploadDate: s(r.upload_date),
-      uploadedBy: s(r.uploaded_by),
-      totalRecords: Number(r.total_records) || 0,
-      newRecordsAdded: Number(r.new_records_added) || 0,
-      duplicateRecordsSkipped: Number(r.duplicates_skipped) || 0,
+      fileName: s(r.fileName),
+      uploadDate: s(r.uploadDate),
+      uploadedBy: s(r.uploadedBy),
+      totalRecords: num(r.totalRecords),
+      newRecordsAdded: num(r.newRecordsAdded),
+      duplicateRecordsSkipped: num(r.duplicateRecordsSkipped),
     }))
     .sort((a, b) => (b.uploadDate || "").localeCompare(a.uploadDate || ""));
 
   return { complaints, uploads };
 }
 
-/** Append newly-uploaded SpotHero complaints. */
+/** Append newly-uploaded SpotHero complaints to the Google Sheet. */
 export async function appendComplaints(records: ComplaintRecord[], uploadedBy: string, fileName: string): Promise<void> {
   if (records.length === 0) return;
-  if (!configured()) throw new Error("Supabase not configured (SUPABASE_URL / SUPABASE_SERVICE_KEY).");
+  if (!configured()) throw new Error("Google Sheet not configured (set GSHEET_WEBAPP_URL).");
   const rows = records.map((r) => ({
-    rental_id: r.rentalId || "",
-    facility_name: r.facilityName,
-    facility_id: r.facilityId || "",
-    complaint_type: r.complaintType,
-    complaint_date: r.complaintDate || null,
+    rentalId: r.rentalId || "",
+    facilityName: r.facilityName,
+    facilityId: r.facilityId || "",
+    complaintType: r.complaintType,
+    complaintDate: r.complaintDate || "",
     source: "SpotHero",
-    resolution_status: r.resolutionStatus || "Open",
-    uploaded_by: uploadedBy || "",
-    file_name: fileName || "",
-    upload_date: r.uploadDate,
-    reporting_year: r.reportingYear,
-    reporting_month: r.reportingMonth,
-    reporting_biweekly: r.reportingBiweekly,
+    resolutionStatus: r.resolutionStatus || "Open",
+    uploadDate: r.uploadDate,
+    reportingYear: r.reportingYear,
+    reportingMonth: r.reportingMonth,
+    reportingBiweekly: r.reportingBiweekly,
+    uploadedBy: uploadedBy || "",
+    fileName: fileName || "",
   }));
-  await insert(COMPLAINTS, rows);
+  await callPost({ type: "complaints", rows });
 }
 
-/** Record one upload in the upload-log table. */
+/** Record one upload in the upload-log tab. */
 export async function appendUpload(log: UploadLog): Promise<void> {
-  if (!configured()) throw new Error("Supabase not configured.");
-  await insert(UPLOADS, [
-    {
-      file_name: log.fileName,
-      upload_date: log.uploadDate,
-      uploaded_by: log.uploadedBy,
-      total_records: log.totalRecords,
-      new_records_added: log.newRecordsAdded,
-      duplicates_skipped: log.duplicateRecordsSkipped,
-    },
-  ]);
+  if (!configured()) throw new Error("Google Sheet not configured (set GSHEET_WEBAPP_URL).");
+  await callPost({ type: "upload", row: log });
 }
