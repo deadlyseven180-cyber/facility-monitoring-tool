@@ -314,31 +314,6 @@ function BiWeekly({ records }: { records: ComplaintRecord[] }) {
               <CmpCard label={pb.range} sub="Later period" value={cmp.current} title={ridTitle(recB)} onClick={() => setShown({ label: `${pb.range} · ${recB.length} cases`, recs: recB })} />
               <CmpCard label={cmp.dir === "down" ? "Reduced by" : cmp.dir === "up" ? "Increased by" : "No change"} sub={deltaLabel || "change"} value={Math.abs(cmp.diff)} tone={cmp.dir === "down" ? "good" : cmp.dir === "up" ? "bad" : undefined} arrow={cmp.dir} title={ridTitle(delta)} onClick={() => delta.length && setShown({ label: `${deltaLabel} · ${delta.length}`, recs: delta })} />
             </div>
-
-            {shown && (
-              <div className="mt-4 rounded-xl border border-slate-200 dark:border-slate-800">
-                <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-slate-800">
-                  <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Rental IDs — {shown.label}</p>
-                  <button type="button" onClick={() => setShown(null)} className="text-xs font-medium text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">Close ✕</button>
-                </div>
-                <div className="max-h-[320px] overflow-auto">
-                  <table className="min-w-full text-sm">
-                    <thead className="sticky top-0 bg-white dark:bg-slate-900"><tr className="text-left text-xs uppercase text-slate-400"><th className="px-3 py-2">Rental ID</th><th className="px-3">Date</th><th className="px-3">Facility</th><th className="px-3">Type</th></tr></thead>
-                    <tbody>
-                      {shown.recs.map((r, i) => (
-                        <tr key={`${r.rentalId || "x"}-${i}`} className="border-t border-slate-100 dark:border-slate-800">
-                          <td className="px-3 py-1.5 font-medium text-slate-800 dark:text-slate-100">{r.rentalId || "—"}</td>
-                          <td className="px-3 whitespace-nowrap text-slate-500">{r.complaintDate}</td>
-                          <td className="max-w-[220px] truncate px-3 text-slate-600 dark:text-slate-300" title={r.facilityName}>{r.facilityName}</td>
-                          <td className="px-3 whitespace-nowrap text-slate-500">{r.complaintType === "lot_full" ? "Lot Full" : "Inaccessibility"}</td>
-                        </tr>
-                      ))}
-                      {shown.recs.length === 0 && <tr><td colSpan={4} className="px-3 py-4 text-center text-slate-400">No rental IDs.</td></tr>}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
           </>
         ) : (
           <p className="mt-3 text-sm text-slate-400">Select two periods to compare.</p>
@@ -351,18 +326,48 @@ function BiWeekly({ records }: { records: ComplaintRecord[] }) {
             <table className="min-w-full text-sm">
               <thead><tr className="text-left text-xs uppercase text-slate-400"><th className="py-2 pr-3">Facility</th><th className="px-2 text-right">Earlier</th><th className="px-2 text-right">Later</th><th className="px-2 text-right">Change</th></tr></thead>
               <tbody>
-                {facMove.map((f) => (
-                  <tr key={f.facility} className="border-t border-slate-100 dark:border-slate-800">
-                    <td className="py-1.5 pr-3 font-medium text-slate-700 dark:text-slate-200">{f.facility}</td>
-                    <td className="px-2 text-right tabular-nums text-slate-500">{f.prev}</td>
-                    <td className="px-2 text-right tabular-nums text-slate-500">{f.cur}</td>
-                    <td className={`px-2 text-right font-semibold tabular-nums ${f.diff < 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>{f.diff < 0 ? `▼ ${Math.abs(f.diff)}` : `▲ ${f.diff}`}</td>
-                  </tr>
-                ))}
+                {facMove.map((f) => {
+                  const recs = [...recA, ...recB].filter((r) => r.facilityName === f.facility).sort((x, y) => (y.complaintDate || "").localeCompare(x.complaintDate || ""));
+                  return (
+                    <tr key={f.facility} className="border-t border-slate-100 dark:border-slate-800">
+                      <td className="py-1.5 pr-3">
+                        <button type="button" onClick={() => setShown({ label: `${f.facility} · ${recs.length} case(s) in the compared periods`, recs })} className="text-left font-medium text-indigo-600 hover:underline dark:text-indigo-400" title={`${f.facility} — click for Rental IDs`}>{f.facility}</button>
+                      </td>
+                      <td className="px-2 text-right tabular-nums text-slate-500">{f.prev}</td>
+                      <td className="px-2 text-right tabular-nums text-slate-500">{f.cur}</td>
+                      <td className={`px-2 text-right font-semibold tabular-nums ${f.diff < 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>{f.diff < 0 ? `▼ ${Math.abs(f.diff)}` : `▲ ${f.diff}`}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </Card>
+      )}
+
+      {cmp && shown && (
+        <div className="rounded-xl border border-slate-200 dark:border-slate-800">
+          <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Rental IDs — {shown.label}</p>
+            <button type="button" onClick={() => setShown(null)} className="text-xs font-medium text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">Close ✕</button>
+          </div>
+          <div className="max-h-[340px] overflow-auto">
+            <table className="min-w-full text-sm">
+              <thead className="sticky top-0 bg-white dark:bg-slate-900"><tr className="text-left text-xs uppercase text-slate-400"><th className="px-3 py-2">Rental ID</th><th className="px-3">Date</th><th className="px-3">Facility</th><th className="px-3">Type</th></tr></thead>
+              <tbody>
+                {shown.recs.map((r, i) => (
+                  <tr key={`${r.rentalId || "x"}-${i}`} className="border-t border-slate-100 dark:border-slate-800">
+                    <td className="px-3 py-1.5 font-medium text-slate-800 dark:text-slate-100">{r.rentalId || "—"}</td>
+                    <td className="px-3 whitespace-nowrap text-slate-500">{r.complaintDate}</td>
+                    <td className="max-w-[220px] truncate px-3 text-slate-600 dark:text-slate-300" title={r.facilityName}>{r.facilityName}</td>
+                    <td className="px-3 whitespace-nowrap text-slate-500">{r.complaintType === "lot_full" ? "Lot Full" : "Inaccessibility"}</td>
+                  </tr>
+                ))}
+                {shown.recs.length === 0 && <tr><td colSpan={4} className="px-3 py-4 text-center text-slate-400">No rental IDs.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
     </div>
   );
