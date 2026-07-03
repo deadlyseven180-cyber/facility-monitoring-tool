@@ -115,17 +115,23 @@ export function resolveColumns(headers: string[]): {
   });
 
   // Net remit: SpotHero's true net payout lives in the "net total remit" column
-  // (column Z in the full accounting export). Prefer ANY header containing both
-  // "net" and "remit" so every naming variant is caught; only fall back to a
-  // plain "remit" column when no net column exists. This drives the Total Net
-  // Remit totals (per facility and per state) on both the report and compare
-  // tabs, for every state and any uploaded CSV.
-  const netRemitCol = headers.find((h) => {
-    const n = normalize(h);
-    return n.includes("net") && n.includes("remit");
-  });
-  const anyRemitCol = headers.find((h) => normalize(h).includes("remit"));
-  const remitCol = netRemitCol ?? anyRemitCol;
+  // (column Z in the full accounting export). Resolve it precisely, most
+  // specific first, so a per-reservation "net remit" (blank on many rows) never
+  // wins over the real "net total remit":
+  //   1. exact "net total remit" / "total net remit" (and remittance variants)
+  //   2. any header containing both "net" and "remit"
+  //   3. exact "net remit" variants
+  //   4. any header containing "remit" (last resort — the gross total remit)
+  // Drives the Total Net Remit totals (per facility and per state) on both the
+  // report and compare tabs, for every state and any uploaded CSV.
+  const remitCol =
+    resolveColumn(headers, [
+      "Net Total Remit", "Total Net Remit", "Net Total Remittance", "Total Net Remittance", "Net Remit Total",
+    ]) ??
+    headers.find((h) => { const n = normalize(h); return n.includes("net") && n.includes("remit"); }) ??
+    resolveColumn(headers, ["Net Remit", "Net Remittance"]) ??
+    headers.find((h) => normalize(h).includes("remit")) ??
+    null;
   if (remitCol) map.totalRemit = remitCol;
   else missing.push(COLUMN_LABELS.totalRemit);
 
