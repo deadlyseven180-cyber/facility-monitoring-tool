@@ -8,6 +8,7 @@ import FacilityRecordsModal from "@/components/shared/FacilityRecordsModal";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { detectColumns, isAccountingReport } from "@/lib/reports/analyze";
 import { categoryForReason } from "@/lib/reports/filters";
+import { extractSpotHeroData } from "@/lib/reports/spotheroStore";
 import { toIsoDate } from "@/lib/reports/columns";
 import { printHtml, downloadHtml } from "@/lib/reportExport";
 import type { ParsedCsv } from "@/types/data";
@@ -1237,7 +1238,12 @@ function Upload({ uploads, onUploaded }: { uploads: UploadLog[]; onUploaded: () 
     try {
       const res = await fetch("/api/complaint-history", { method: "POST", headers: { "Content-Type": "application/json", ...(pat ? { "x-airtable-pat": pat } : {}) }, body: JSON.stringify({ fileName, uploadedBy, incidents }) });
       const j = await res.json();
-      if (j?.ok) { setMsg(`Stored ${j.log.newRecordsAdded} new · skipped ${j.log.duplicateRecordsSkipped} duplicate(s).`); setFiles([]); onUploaded(); }
+      if (j?.ok) {
+        // Also persist raw rows + per-facility financials for the History view.
+        const { rows: shRows, financials } = extractSpotHeroData(files, fileName, new Date().toISOString());
+        fetch("/api/spothero-store", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileName, rows: shRows, financials }) }).catch(() => {});
+        setMsg(`Stored ${j.log.newRecordsAdded} new · skipped ${j.log.duplicateRecordsSkipped} duplicate(s).`); setFiles([]); onUploaded();
+      }
       else setMsg(j?.error || "Upload failed.");
     } catch { setMsg("Upload failed."); } finally { setBusy(false); }
   }

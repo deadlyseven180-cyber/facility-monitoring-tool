@@ -107,3 +107,79 @@ export async function appendUpload(log: UploadLog): Promise<void> {
   if (!configured()) throw new Error("Google Sheet not configured (set GSHEET_WEBAPP_URL).");
   await callPost({ type: "upload", row: log });
 }
+
+/* ---- Raw SpotHero rows + per-facility financials (for the History view) ---- */
+
+/** A raw SpotHero reservation row kept for full report reconstruction. */
+export interface SpotHeroRow {
+  rentalId: string;
+  facility: string;
+  date: string;
+  state: string;
+  reason: string;
+  category: string;
+  refund: string;
+  netRemit: string;
+  fileName: string;
+  uploadDate: string;
+}
+
+/** A per-facility financial summary for one uploaded period. */
+export interface FacilityFinancial {
+  fileName: string;
+  uploadDate: string;
+  period: string;
+  facility: string;
+  state: string;
+  netRemit: number;
+  refund: number;
+  reservations: number;
+  lotFull: number;
+  inacc: number;
+}
+
+/** Read all rows of a named tab. */
+async function callGetSheet(sheet: string): Promise<Record<string, unknown>[]> {
+  const url = new URL(WEBAPP_URL);
+  url.searchParams.set("sheet", sheet);
+  if (TOKEN) url.searchParams.set("token", TOKEN);
+  const res = await fetch(url.toString(), { cache: "no-store", redirect: "follow" });
+  if (!res.ok) throw new Error(`Google Sheet read ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const j = (await res.json()) as { ok?: boolean; error?: string; rows?: unknown[] };
+  if (j.ok === false) throw new Error(j.error || "sheet read failed");
+  return Array.isArray(j.rows) ? (j.rows as Record<string, unknown>[]) : [];
+}
+
+export async function appendSpotHeroRows(rows: SpotHeroRow[]): Promise<void> {
+  if (!configured() || rows.length === 0) return;
+  await callPost({ sheet: "SpotHeroRows", rows });
+}
+
+export async function appendFacilityFinancials(rows: FacilityFinancial[]): Promise<void> {
+  if (!configured() || rows.length === 0) return;
+  await callPost({ sheet: "FacilityFinancials", rows });
+}
+
+/** The set of fileNames already stored (used to skip duplicate uploads). */
+export async function storedFileNames(): Promise<Set<string>> {
+  if (!configured()) return new Set();
+  const rows = await callGetSheet("FacilityFinancials");
+  return new Set(rows.map((r) => s(r.fileName)).filter(Boolean));
+}
+
+export async function readFacilityFinancials(): Promise<FacilityFinancial[]> {
+  if (!configured()) return [];
+  const rows = await callGetSheet("FacilityFinancials");
+  return rows.map((r) => ({
+    fileName: s(r.fileName),
+    uploadDate: s(r.uploadDate),
+    period: s(r.period),
+    facility: s(r.facility),
+    state: s(r.state),
+    netRemit: num(r.netRemit),
+    refund: num(r.refund),
+    reservations: num(r.reservations),
+    lotFull: num(r.lotFull),
+    inacc: num(r.inacc),
+  }));
+}

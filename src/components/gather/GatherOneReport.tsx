@@ -26,6 +26,7 @@ import {
 } from "@/lib/reports/merge";
 import { filterForCategory, categoryForReason, type IssueCategory } from "@/lib/reports/filters";
 import { toIsoDate } from "@/lib/reports/columns";
+import { extractSpotHeroData } from "@/lib/reports/spotheroStore";
 import { formatCurrency, formatScore } from "@/lib/format";
 import {
   buildReportHtml,
@@ -269,9 +270,9 @@ export default function GatherOneReport() {
             return { facility, date: toIsoDate(String(r.starts || "")) ?? "", rentalId: String(r.rentalId || "").trim(), category: cat };
           })
           .filter((x): x is { facility: string; date: string; rentalId: string; category: "lot_full" | "inaccessibility" } => x !== null);
+        const fileName = files.map((f) => f.fileName).join(", ");
         if (incidents.length) {
           const uploadedBy = (typeof window !== "undefined" && localStorage.getItem("progressUserName")) || "Gather Data";
-          const fileName = files.map((f) => f.fileName).join(", ");
           await fetch("/api/complaint-history", {
             method: "POST",
             headers: { "Content-Type": "application/json", ...(pat ? { "x-airtable-pat": pat } : {}) },
@@ -279,6 +280,15 @@ export default function GatherOneReport() {
           }).catch(() => {});
           refreshStored();
         }
+        // Persist raw rows + per-facility financials (net remit, refunds,
+        // reservations, complaints) so the History view can show them later
+        // without re-uploading. De-duped by fileName server-side.
+        const { rows: shRows, financials } = extractSpotHeroData(files, fileName, new Date().toISOString());
+        fetch("/api/spothero-store", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fileName, rows: shRows, financials }),
+        }).catch(() => {});
       }
     } catch {
       setError("Something went wrong generating the report.");
