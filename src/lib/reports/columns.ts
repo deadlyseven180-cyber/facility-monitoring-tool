@@ -108,10 +108,26 @@ export function resolveColumns(headers: string[]): {
   const missing: string[] = [];
 
   (Object.keys(COLUMN_CANDIDATES) as ColumnKey[]).forEach((key) => {
+    if (key === "totalRemit") return; // resolved with a dedicated rule below
     const found = resolveColumn(headers, [...COLUMN_CANDIDATES[key]]);
     if (found) map[key] = found;
     else missing.push(COLUMN_LABELS[key]);
   });
+
+  // Net remit: SpotHero's true net payout lives in the "net total remit" column
+  // (column Z in the full accounting export). Prefer ANY header containing both
+  // "net" and "remit" so every naming variant is caught; only fall back to a
+  // plain "remit" column when no net column exists. This drives the Total Net
+  // Remit totals (per facility and per state) on both the report and compare
+  // tabs, for every state and any uploaded CSV.
+  const netRemitCol = headers.find((h) => {
+    const n = normalize(h);
+    return n.includes("net") && n.includes("remit");
+  });
+  const anyRemitCol = headers.find((h) => normalize(h).includes("remit"));
+  const remitCol = netRemitCol ?? anyRemitCol;
+  if (remitCol) map.totalRemit = remitCol;
+  else missing.push(COLUMN_LABELS.totalRemit);
 
   return { map, missing };
 }
