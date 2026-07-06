@@ -65,7 +65,7 @@ function refundRatePct(f: { refundColumnTotal: number; netRemit: number }): numb
 }
 
 /** Narrative summary of what the gathered data shows. */
-function buildSummary(result: ReportResult): string[] {
+export function buildSummary(result: ReportResult): string[] {
   const t = result.totals;
   const cat = result.filterLabel; // "All Issues" | "Lot Full" | "Inaccessibility"
   const complaintRate =
@@ -107,7 +107,7 @@ function buildSummary(result: ReportResult): string[] {
 }
 
 /** Recommended actions derived from the data. */
-function buildActionPlan(result: ReportResult): string[] {
+export function buildActionPlan(result: ReportResult): string[] {
   const cat = result.filterLabel;
   const recs: string[] = [];
   const byScore = [...result.facilities].sort(
@@ -151,7 +151,7 @@ function buildActionPlan(result: ReportResult): string[] {
 }
 
 /** Broad, preventive measures to avoid or reduce the issues in scope. */
-function buildPreventionPlan(cat: string): string[] {
+export function buildPreventionPlan(cat: string): string[] {
   return [
     "<b>Real-time availability sync</b> — keep SpotHero inventory in lock-step with each facility's live capacity so spots can't be sold beyond what's physically available.",
     "<b>Set sellable-capacity buffers</b> — cap online inventory below 100% at high-incidence facilities to absorb walk-ins, monthly parkers, and miscounts.",

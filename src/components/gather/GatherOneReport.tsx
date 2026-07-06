@@ -30,6 +30,9 @@ import { extractSpotHeroData } from "@/lib/reports/spotheroStore";
 import { formatCurrency, formatScore } from "@/lib/format";
 import {
   buildReportHtml,
+  buildSummary,
+  buildActionPlan,
+  buildPreventionPlan,
   downloadHtml,
   printHtml,
   type ChartImage,
@@ -47,13 +50,6 @@ interface InternalRecord {
   category?: "lot_full" | "inaccessibility";
   source?: string;
   origins?: string[];
-}
-
-/** Per-Airtable-source tally of internal Lot Full / Inaccessibility cases. */
-interface SourceTally {
-  name: string;
-  lotFull: number;
-  inacc: number;
 }
 
 /** Convert internal Airtable issues into the analyzer's merged-row shape. */
@@ -104,6 +100,10 @@ function thisMonthRange(): DateRange {
   return { start: `${ym}-01`, end: `${ym}-${p(d.getDate())}` };
 }
 
+/** Shared styling for the report's filter dropdowns. */
+const filterSelectCls =
+  "rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:focus:ring-indigo-500/30";
+
 export default function GatherOneReport() {
   const [files, setFiles] = useState<ParsedCsv[]>([]);
   // Internal Lot Full / Inaccessibility rows pulled from Airtable on generate.
@@ -116,8 +116,6 @@ export default function GatherOneReport() {
   const [dateRange, setDateRange] = useState<DateRange>({});
   const [error, setError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
-  // Per-Airtable-source breakdown of internal cases (RingCentral, Refunds…).
-  const [sources, setSources] = useState<SourceTally[]>([]);
   // SpotHero complaints already stored in the Google Sheet (Drive) — gathered
   // into every report, and shown as a count next to "Generate Report".
   const [storedSpot, setStoredSpot] = useState<StoredSpot[]>([]);
@@ -233,7 +231,6 @@ export default function GatherOneReport() {
     setDateRange(thisMonthRange());
     setError(null);
     setInternalRows([]);
-    setSources([]);
   }
 
   function handleClear() {
@@ -273,16 +270,6 @@ export default function GatherOneReport() {
         return;
       }
 
-      // Tally each Airtable source's cases (deduped by Rental ID upstream).
-      const agg = new Map<string, SourceTally>();
-      for (const r of records) {
-        const o = r.source || r.origins?.[0] || "Airtable";
-        const e = agg.get(o) ?? { name: o, lotFull: 0, inacc: 0 };
-        if (r.category === "lot_full") e.lotFull++;
-        else if (r.category === "inaccessibility") e.inacc++;
-        agg.set(o, e);
-      }
-      setSources([...agg.values()].sort((a, b) => b.lotFull + b.inacc - (a.lotFull + a.inacc)));
       setInternalRows(rows);
       setAnalyzed(true);
 
@@ -413,97 +400,59 @@ export default function GatherOneReport() {
           )}
         </div>
       ) : (
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-            Generate Report
-          </h2>
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            {hasInternal && (
-              <DateRangeFilter value={dateRange} onChange={setDateRange} />
-            )}
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value as IssueCategory)}
-              aria-label="Filter by issue category"
-              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:focus:ring-indigo-500/30"
-            >
-              <option value="all">All</option>
-              <option value="lot_full">Lot Full</option>
-              <option value="inaccessibility">Inaccessibility</option>
-            </select>
-            <select
-              value={source}
-              onChange={(e) => setSource(e.target.value as "all" | "spothero" | "internal")}
-              aria-label="Filter by data source"
-              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:focus:ring-indigo-500/30"
-            >
-              <option value="all">All Sources</option>
-              <option value="spothero">SpotHero</option>
-              <option value="internal">Internal</option>
-            </select>
-            <select
-              value={stateFilter}
-              onChange={(e) => setStateFilter(e.target.value)}
-              aria-label="Filter by state"
-              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:focus:ring-indigo-500/30"
-            >
-              <option value="All">All States</option>
-              <option value="MA">MA</option>
-              <option value="IL">IL</option>
-              <option value="DC">DC</option>
-            </select>
-            {merged && <ExportMenu result={result} dateRange={dateRange} />}
-            <button
-              type="button"
-              onClick={handleClear}
-              title="Clear data"
-              aria-label="Clear data"
-              className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white p-2 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="3 6 5 6 21 6" />
-                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                <path d="M10 11v6M14 11v6" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {analyzed && sources.length > 0 && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Internal Data Sources (Airtable)</h3>
-          <p className="mb-3 mt-0.5 text-xs text-slate-500 dark:text-slate-400">Lot Full &amp; Inaccessibility cases gathered from each connected table.</p>
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs uppercase text-slate-400">
-                  <th className="py-1.5 pr-3">Source table</th>
-                  <th className="px-3 text-right">Lot Full</th>
-                  <th className="px-3 text-right">Inaccessibility</th>
-                  <th className="px-3 text-right">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sources.map((s) => (
-                  <tr key={s.name} className="border-t border-slate-100 dark:border-slate-800">
-                    <td className="py-1.5 pr-3 font-medium text-slate-800 dark:text-slate-100">{s.name}</td>
-                    <td className="px-3 text-right tabular-nums">{s.lotFull}</td>
-                    <td className="px-3 text-right tabular-nums">{s.inacc}</td>
-                    <td className="px-3 text-right font-semibold tabular-nums">{s.lotFull + s.inacc}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Report</h2>
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                Filter below — your Export / PDF mirrors exactly what&apos;s shown.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-end gap-3">
+              {hasInternal && (
+                <Field label="Date range">
+                  <DateRangeFilter value={dateRange} onChange={setDateRange} />
+                </Field>
+              )}
+              <Field label="Category">
+                <select value={category} onChange={(e) => setCategory(e.target.value as IssueCategory)} aria-label="Filter by issue category" className={filterSelectCls}>
+                  <option value="all">All</option>
+                  <option value="lot_full">Lot Full</option>
+                  <option value="inaccessibility">Inaccessibility</option>
+                </select>
+              </Field>
+              <Field label="Source">
+                <select value={source} onChange={(e) => setSource(e.target.value as "all" | "spothero" | "internal")} aria-label="Filter by data source" className={filterSelectCls}>
+                  <option value="all">All Sources</option>
+                  <option value="spothero">SpotHero</option>
+                  <option value="internal">Internal</option>
+                </select>
+              </Field>
+              <Field label="State">
+                <select value={stateFilter} onChange={(e) => setStateFilter(e.target.value)} aria-label="Filter by state" className={filterSelectCls}>
+                  <option value="All">All States</option>
+                  <option value="MA">MA</option>
+                  <option value="IL">IL</option>
+                  <option value="DC">DC</option>
+                </select>
+              </Field>
+              <div className="flex items-center gap-2 self-end">
+                {merged && <ExportMenu result={result} dateRange={dateRange} />}
+                <button
+                  type="button"
+                  onClick={handleClear}
+                  title="Clear data"
+                  aria-label="Clear data"
+                  className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white p-2 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                    <path d="M10 11v6M14 11v6" />
+                  </svg>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -611,6 +560,11 @@ function ReportDashboard({
         </p>
       )}
 
+      {/* Executive summary narrative — identical to the downloaded report. */}
+      <Section title="Executive Summary" subtitle="What the gathered data shows">
+        <NarrativeCard items={buildSummary(result)} />
+      </Section>
+
       {/* Attention Required — top 5 facilities by complaints, per category.
           When the report is filtered to one category, the other category's
           chart has no data, so it is hidden automatically. */}
@@ -661,6 +615,20 @@ function ReportDashboard({
         />
       </Section>
 
+      {/* Recommendation + action plan — same content as the downloaded report. */}
+      <Section
+        title="Recommended Action Plan"
+        subtitle="Prioritized operational actions derived from the data"
+      >
+        <NarrativeCard items={buildActionPlan(result)} ordered accent="indigo" />
+      </Section>
+
+      <Section
+        title={`Preventive Measures — Reducing ${cat}`}
+        subtitle="Broad, proactive measures to prevent recurrence"
+      >
+        <NarrativeCard items={buildPreventionPlan(cat)} ordered accent="teal" />
+      </Section>
     </div>
   );
 }
@@ -1136,16 +1104,73 @@ function Section({
 }) {
   return (
     <section>
-      <div className="mb-3">
-        <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-          {title}
-        </h3>
-        {subtitle && (
-          <p className="text-sm text-slate-500 dark:text-slate-400">{subtitle}</p>
-        )}
+      <div className="mb-3 flex items-start gap-2.5">
+        <span className="mt-1 h-5 w-1.5 shrink-0 rounded-full bg-gradient-to-b from-indigo-500 to-violet-500" />
+        <div>
+          <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+            {title}
+          </h3>
+          {subtitle && (
+            <p className="text-sm text-slate-500 dark:text-slate-400">{subtitle}</p>
+          )}
+        </div>
       </div>
       {children}
     </section>
+  );
+}
+
+/** A labeled control wrapper for the filter toolbar. */
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="pl-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+/**
+ * Renders a list of narrative HTML strings (from the report's summary/action/
+ * prevention builders) as a professional card — used on-screen so the live
+ * report matches the download exactly. Strings are produced by our own code
+ * with user data HTML-escaped, so inline <b> markup is safe to render.
+ */
+function NarrativeCard({
+  items,
+  ordered,
+  accent = "slate",
+}: {
+  items: string[];
+  ordered?: boolean;
+  accent?: "indigo" | "teal" | "slate";
+}) {
+  const marker =
+    accent === "indigo"
+      ? "marker:text-indigo-500"
+      : accent === "teal"
+        ? "marker:text-teal-500"
+        : "marker:text-slate-400";
+  const itemCls =
+    "pl-1.5 text-sm leading-relaxed text-slate-600 dark:text-slate-300 [&_b]:font-semibold [&_b]:text-slate-900 dark:[&_b]:text-slate-100";
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      {ordered ? (
+        <ol className={`list-decimal space-y-3.5 pl-5 marker:font-bold ${marker}`}>
+          {items.map((s, i) => (
+            <li key={i} className={itemCls} dangerouslySetInnerHTML={{ __html: s }} />
+          ))}
+        </ol>
+      ) : (
+        <ul className={`list-disc space-y-3 pl-5 ${marker}`}>
+          {items.map((s, i) => (
+            <li key={i} className={itemCls} dangerouslySetInnerHTML={{ __html: s }} />
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
