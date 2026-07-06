@@ -67,7 +67,9 @@ function internalToMergedRows(
     spot: r.facility,
     starts: r.date,
     state: r.state || "",
-    refund: r.amount ? String(r.amount) : "",
+    // Store internal refunds as NEGATIVE (like SpotHero's column L), so the
+    // combined "Total Refunds" adds SpotHero + internal in the same direction.
+    refund: r.amount ? String(-Math.abs(r.amount)) : "",
     totalRemit: "",
   }));
 }
@@ -539,7 +541,7 @@ function ReportDashboard({ result }: { result: ReportResult }) {
         <StatCard
           tone="red"
           label={`Total ${cat} Refunds`}
-          value={formatCurrency(totals.catRefundColumnTotal || totals.refundTotal)}
+          value={formatCurrency(totals.refundTotal)}
           subLabel="Refund Rate"
           subValue={`${refundRateAll.toFixed(2)}%`}
         />

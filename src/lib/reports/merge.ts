@@ -3,7 +3,7 @@
 // analyzeReport can process. A "__source" column records each row's origin.
 
 import type { ParsedCsv } from "@/types/data";
-import { resolveColumn, toIsoDate } from "./columns";
+import { parseMoney, resolveColumn, toIsoDate } from "./columns";
 import { stateForCity } from "./cities";
 import { normalizeState } from "./facilityKey";
 import { ALL_ISSUES_FILTER, matchesFilter } from "./filters";
@@ -132,6 +132,9 @@ export function mergeReportFiles(files: SourcedFile[]): ParsedCsv {
         // Keep internal rows for any surfaced category (Lot Full or
         // Inaccessibility); the report's category filter narrows it later.
         if (!matchesFilter(reason, ALL_ISSUES_FILTER)) continue;
+        // Internal refunds are stored NEGATIVE (like SpotHero's column L) so a
+        // combined refund total adds both sources in the same direction.
+        const amt = parseMoney(val(r, amountCol));
         rows.push({
           __source: "internal",
           reason,
@@ -139,7 +142,7 @@ export function mergeReportFiles(files: SourcedFile[]): ParsedCsv {
           spot: val(r, facCol),
           starts: val(r, dateCol),
           state: val(r, stateCol),
-          refund: val(r, amountCol),
+          refund: amt ? String(-Math.abs(amt)) : "",
           totalRemit: "",
         });
       }
