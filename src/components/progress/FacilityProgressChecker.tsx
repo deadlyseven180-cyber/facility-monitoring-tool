@@ -160,7 +160,9 @@ function Dashboard({ records }: { records: ComplaintRecord[] }) {
         date: r.complaintDate,
         type: r.complaintType === "lot_full" ? "Lot Full" : "Inaccessibility",
         state: r.state || "",
-        refund: r.amount ?? null,
+        // Internal refunds shown negative (like SpotHero's column L), matching
+        // the Gather Data report.
+        refund: r.amount != null ? -Math.abs(r.amount) : null,
       }));
   }, [picked, rows]);
 
@@ -1449,18 +1451,26 @@ function TrendChart({ series, kind }: { series: SeriesPoint[]; kind: "bar" | "li
   const dark = theme === "dark";
   const text = dark ? "#cbd5e1" : "#475569";
   const grid = dark ? "rgba(148,163,184,0.16)" : "rgba(148,163,184,0.22)";
-  const config = useMemo<ChartConfiguration>(() => ({
-    type: kind,
-    plugins: [totalLabels(text)],
-    data: {
-      labels: series.map((s) => s.label),
-      datasets: [
-        { label: "Lot Full", data: series.map((s) => s.counts.lotFull), backgroundColor: "#3b82f6", borderColor: "#3b82f6", tension: 0.3, stack: "a" },
-        { label: "Inaccessibility", data: series.map((s) => s.counts.inaccessibility), backgroundColor: "#a855f7", borderColor: "#a855f7", tension: 0.3, stack: "a" },
-      ],
-    },
-    options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 18 } }, plugins: { legend: { labels: { color: text, boxWidth: 12 } }, tooltip: { callbacks: { footer: (items: { parsed: { y: number | null } }[]) => `Total: ${items.reduce((s, it) => s + (it.parsed.y || 0), 0)}` } } }, scales: { x: { stacked: true, ticks: { color: text, font: { size: 10 } }, grid: { display: false } }, y: { stacked: true, beginAtZero: true, ticks: { color: text, precision: 0 }, grid: { color: grid } } } },
-  }), [series, kind, text, grid]);
+  const config = useMemo<ChartConfiguration>(() => {
+    // Auto-hide a category series that has no data at all (e.g. when the view is
+    // filtered to the other category), so only the relevant series shows. If
+    // neither has data, keep both so the chart still renders.
+    const lf = series.map((s) => s.counts.lotFull);
+    const ia = series.map((s) => s.counts.inaccessibility);
+    const hasLF = lf.some((n) => n > 0);
+    const hasIA = ia.some((n) => n > 0);
+    const mk = (label: string, d: number[], color: string) => ({ label, data: d, backgroundColor: color, borderColor: color, tension: 0.3, stack: "a" });
+    const datasets = [
+      ...(hasLF || !hasIA ? [mk("Lot Full", lf, "#3b82f6")] : []),
+      ...(hasIA || !hasLF ? [mk("Inaccessibility", ia, "#a855f7")] : []),
+    ];
+    return {
+      type: kind,
+      plugins: [totalLabels(text)],
+      data: { labels: series.map((s) => s.label), datasets },
+      options: { responsive: true, maintainAspectRatio: false, layout: { padding: { top: 18 } }, plugins: { legend: { labels: { color: text, boxWidth: 12 } }, tooltip: { callbacks: { footer: (items: { parsed: { y: number | null } }[]) => `Total: ${items.reduce((s, it) => s + (it.parsed.y || 0), 0)}` } } }, scales: { x: { stacked: true, ticks: { color: text, font: { size: 10 } }, grid: { display: false } }, y: { stacked: true, beginAtZero: true, ticks: { color: text, precision: 0 }, grid: { color: grid } } } },
+    };
+  }, [series, kind, text, grid]);
   if (series.length === 0) return <Empty msg="No data for this view yet." />;
   return <ChartCanvas height={260} config={config} />;
 }
