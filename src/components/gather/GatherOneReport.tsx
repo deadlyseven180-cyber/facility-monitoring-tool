@@ -30,7 +30,6 @@ import { extractSpotHeroData } from "@/lib/reports/spotheroStore";
 import { formatCurrency, formatScore } from "@/lib/format";
 import {
   buildReportHtml,
-  buildSummary,
   buildActionPlan,
   buildPreventionPlan,
   downloadHtml,
@@ -559,11 +558,6 @@ function ReportDashboard({
           {totals.spotHeroLotFull - totals.spotHeroInaccessibility} Lot Full.
         </p>
       )}
-
-      {/* Executive summary narrative — identical to the downloaded report. */}
-      <Section title="Executive Summary" subtitle="What the gathered data shows">
-        <NarrativeCard items={buildSummary(result)} />
-      </Section>
 
       {/* Attention Required — top 5 facilities by complaints, per category.
           When the report is filtered to one category, the other category's
