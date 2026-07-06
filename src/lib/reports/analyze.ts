@@ -310,6 +310,12 @@ export function analyzeReport(
     const s = normalizeState(rawStateLabel(row));
     if (s) dataState.set(k, s);
   }
+  // The merged dataset carries a "__source" column marking each row's origin,
+  // letting us treat SpotHero and internal rows differently.
+  const sourceCol = data.headers.includes("__source") ? "__source" : null;
+  const isInternalRow = (r: Record<string, string>): boolean =>
+    sourceCol ? r[sourceCol] === "internal" : false;
+
   const stateForKey = (k: string): string => {
     const fromData = dataState.get(k);
     if (fromData) return fromData;
@@ -319,16 +325,17 @@ export function analyzeReport(
     const street = sk ? normalizeState(snapStates[sk]) : null;
     return street ?? UNKNOWN_STATE;
   };
+  // Internal complaints are placed strictly by their OWN state value (the
+  // Airtable Refunds "STATE" field) — no facility-directory or sibling-row
+  // inference — so per-state internal counts match Airtable's STATE filter
+  // exactly (a blank-STATE facility is never pulled into MA/IL/DC). SpotHero
+  // rows keep the richer per-facility state resolution.
   const rowState = (row: Record<string, string>): string =>
-    stateForKey(keyOf(row));
+    isInternalRow(row)
+      ? normalizeState(rawStateLabel(row)) ?? UNKNOWN_STATE
+      : stateForKey(keyOf(row));
 
   const activeState = stateFilter && stateFilter !== "All" ? stateFilter : null;
-
-  // The merged dataset carries a "__source" column marking each row's origin,
-  // letting us treat SpotHero and internal rows differently.
-  const sourceCol = data.headers.includes("__source") ? "__source" : null;
-  const isInternalRow = (r: Record<string, string>): boolean =>
-    sourceCol ? r[sourceCol] === "internal" : false;
 
   // Scope calculations to the selected state. The DATE RANGE filter applies
   // ONLY to internal rows — SpotHero rows are never filtered by date.
@@ -387,6 +394,9 @@ export function analyzeReport(
   let inaccessibilityCount = 0;
   let spotHeroInaccessibility = 0;
   let internalInaccessibility = 0;
+  // SpotHero-only refund column (col L) total for the matched category — the
+  // uploaded CSV's own refund figure (signed), excluding internal amounts.
+  let catRefundColumnTotal = 0;
 
   for (const row of rows) {
     const reason = row[cols.reason] ?? "";
@@ -420,6 +430,7 @@ export function analyzeReport(
 
     const facility = bestLabel(key);
     const refundAmount = parseMoney(row[cols.refundAmount]);
+    if (recSource === "spothero") catRefundColumnTotal += refundAmount;
     const state = stateForKey(key);
 
     records.push({
@@ -515,6 +526,7 @@ export function analyzeReport(
     totals: {
       incidentCount: records.length,
       refundTotal: records.reduce((s, r) => s + r.refundAmount, 0),
+      catRefundColumnTotal,
       facilitiesAffected: facilities.length,
       // Each in-range row is one reservation.
       reservations: rows.length,

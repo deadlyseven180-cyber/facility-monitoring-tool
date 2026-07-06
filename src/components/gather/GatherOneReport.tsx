@@ -539,7 +539,7 @@ function ReportDashboard({ result }: { result: ReportResult }) {
         <StatCard
           tone="red"
           label={`Total ${cat} Refunds`}
-          value={formatCurrency(totals.refundTotal)}
+          value={formatCurrency(totals.catRefundColumnTotal || totals.refundTotal)}
           subLabel="Refund Rate"
           subValue={`${refundRateAll.toFixed(2)}%`}
         />
@@ -565,20 +565,29 @@ function ReportDashboard({ result }: { result: ReportResult }) {
         </p>
       )}
 
-      {/* Attention Required — top 5 facilities by complaints, per category */}
-      <Section
-        title="Attention Required"
-        subtitle="Top 5 facilities by complaints — Lot Full and Inaccessibility"
-      >
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <TopFacilitiesChart result={result} category="lot_full" limit={5} />
-          <TopFacilitiesChart
-            result={result}
-            category="inaccessibility"
-            limit={5}
-          />
-        </div>
-      </Section>
+      {/* Attention Required — top 5 facilities by complaints, per category.
+          When the report is filtered to one category, the other category's
+          chart has no data, so it is hidden automatically. */}
+      {(() => {
+        const showLF = cat !== "Inaccessibility";
+        const showIA = cat !== "Lot Full";
+        const both = showLF && showIA;
+        return (
+          <Section
+            title="Attention Required"
+            subtitle={`Top 5 facilities by complaints${both ? " — Lot Full and Inaccessibility" : showLF ? " — Lot Full" : " — Inaccessibility"}`}
+          >
+            <div className={`grid grid-cols-1 gap-4 ${both ? "xl:grid-cols-2" : ""}`}>
+              {showLF && (
+                <TopFacilitiesChart result={result} category="lot_full" limit={5} />
+              )}
+              {showIA && (
+                <TopFacilitiesChart result={result} category="inaccessibility" limit={5} />
+              )}
+            </div>
+          </Section>
+        );
+      })()}
 
       {/* Charts */}
       <Section title="Charts" subtitle={`Visual breakdown of ${cat} impact`}>

@@ -61,8 +61,13 @@ export interface ReportResult {
   topByPriority: FacilitySummary[];
   totals: {
     incidentCount: number;
-    /** Lot Full refunds total. */
+    /** Matched-category refunds total (SpotHero col L + internal amounts). */
     refundTotal: number;
+    /**
+     * SpotHero-only refund column (col L) total for the matched category — the
+     * uploaded CSV's own refund figure, excluding internal Airtable amounts.
+     */
+    catRefundColumnTotal: number;
     facilitiesAffected: number;
     /** Total reservations (rows) in the selected date range. */
     reservations: number;
