@@ -365,6 +365,139 @@ function ConfigurableChart({
   );
 }
 
+/* --------------------- Year-over-Year comparison chart --------------------- */
+
+/** Selectable comparison periods: full year, each quarter, or a single month. */
+const YOY_PERIODS: { value: string; label: string; months: number[] }[] = [
+  { value: "full", label: "Full Year", months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] },
+  { value: "q1", label: "Q1 · Jan–Mar", months: [1, 2, 3] },
+  { value: "q2", label: "Q2 · Apr–Jun", months: [4, 5, 6] },
+  { value: "q3", label: "Q3 · Jul–Sep", months: [7, 8, 9] },
+  { value: "q4", label: "Q4 · Oct–Dec", months: [10, 11, 12] },
+  ...MONTHS_SHORT.map((m, i) => ({ value: `m${i + 1}`, label: m, months: [i + 1] })),
+];
+
+/** Draws the stacked total above each bar. */
+function stackTotalPlugin(color: string) {
+  return {
+    id: "yoyStackTotal",
+    afterDatasetsDraw(chart: {
+      ctx: CanvasRenderingContext2D;
+      data: { datasets: { data: unknown[] }[] };
+      getDatasetMeta: (i: number) => { data: { x: number; y: number }[] };
+    }) {
+      const { ctx } = chart;
+      const meta0 = chart.getDatasetMeta(0);
+      if (!meta0?.data) return;
+      ctx.save();
+      ctx.font = "bold 11px 'Segoe UI', system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      ctx.fillStyle = color;
+      meta0.data.forEach((_, i) => {
+        let total = 0;
+        let topY = Infinity;
+        let x = 0;
+        chart.data.datasets.forEach((ds, di) => {
+          total += Number(ds.data[i]) || 0;
+          const el = chart.getDatasetMeta(di).data[i];
+          if (el && el.y < topY) { topY = el.y; x = el.x; }
+        });
+        if (total > 0) ctx.fillText(String(total), x, topY - 4);
+      });
+      ctx.restore();
+    },
+  };
+}
+
+/**
+ * Compares the same calendar period across every year present in the data —
+ * e.g. Jan 2025 vs Jan 2026, or Q1 2025 vs Q1 2026. Each year is one stacked
+ * bar (Lot Full + Inaccessibility); an all-empty category series auto-hides.
+ */
+export function YearComparisonChart({ records }: { records: FilteredRecord[] }) {
+  const { theme } = useTheme();
+  const dark = theme === "dark";
+  const text = dark ? "#cbd5e1" : "#475569";
+  const grid = dark ? "rgba(148,163,184,0.16)" : "rgba(148,163,184,0.22)";
+  const [period, setPeriod] = useState("full");
+  const [type, setType] = useState<"bar" | "line">("bar");
+
+  const { config, years } = useMemo(() => {
+    const months = new Set(YOY_PERIODS.find((p) => p.value === period)?.months ?? []);
+    const byYear = new Map<number, { lf: number; ia: number }>();
+    for (const r of records) {
+      const iso = toIsoDate(r.starts);
+      if (!iso) continue;
+      const [y, m] = iso.split("-").map(Number);
+      if (!months.has(m)) continue;
+      const e = byYear.get(y) ?? { lf: 0, ia: 0 };
+      if (r.category === "lot_full") e.lf++;
+      else if (r.category === "inaccessibility") e.ia++;
+      byYear.set(y, e);
+    }
+    const ys = [...byYear.keys()].sort((a, b) => a - b);
+    const lf = ys.map((y) => byYear.get(y)!.lf);
+    const ia = ys.map((y) => byYear.get(y)!.ia);
+    const hasLF = lf.some((n) => n > 0);
+    const hasIA = ia.some((n) => n > 0);
+    const mk = (label: string, d: number[], color: string) => ({
+      label, data: d, backgroundColor: color, borderColor: color,
+      borderRadius: type === "bar" ? 4 : 0, tension: 0.3, fill: false, stack: "a",
+    });
+    const datasets = [
+      ...(hasLF || !hasIA ? [mk("Lot Full", lf, BLUE)] : []),
+      ...(hasIA || !hasLF ? [mk("Inaccessibility", ia, PURPLE)] : []),
+    ];
+    const cfg = {
+      type,
+      plugins: [stackTotalPlugin(text)],
+      data: { labels: ys.map(String), datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false, layout: { padding: { top: 20 } },
+        plugins: {
+          legend: { labels: { color: text, boxWidth: 12 } },
+          tooltip: { callbacks: { footer: (items: { parsed: { y: number | null } }[]) => `Total: ${items.reduce((s, it) => s + (it.parsed.y || 0), 0)}` } },
+        },
+        scales: {
+          x: { stacked: true, ticks: { color: text }, grid: { display: false }, title: { display: true, text: "Year", color: text } },
+          y: { stacked: true, beginAtZero: true, ticks: { color: text, precision: 0 }, grid: { color: grid }, title: { display: true, text: "Complaints", color: text, font: { size: 11, weight: "bold" } } },
+        },
+      },
+    } as unknown as ChartConfiguration;
+    return { config: cfg, years: ys };
+  }, [records, period, type, text, grid]);
+
+  const periodLabel = YOY_PERIODS.find((p) => p.value === period)?.label ?? "Full Year";
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md dark:border-slate-800 dark:bg-slate-900">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h4 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+          <span className="h-4 w-1 rounded-full bg-indigo-500" />
+          Year-over-Year — {periodLabel}
+        </h4>
+        <div className="flex items-center gap-2">
+          <select value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Comparison period" className={selectCls}>
+            {YOY_PERIODS.map((p) => (
+              <option key={p.value} value={p.value}>{p.label}</option>
+            ))}
+          </select>
+          <select value={type} onChange={(e) => setType(e.target.value as "bar" | "line")} aria-label="Chart type" className={selectCls}>
+            <option value="bar">Bar</option>
+            <option value="line">Line</option>
+          </select>
+        </div>
+      </div>
+      {years.length > 0 ? (
+        <ChartCanvas config={config} height={260} ariaLabel={`Year-over-year ${periodLabel} chart`} />
+      ) : (
+        <p className="py-12 text-center text-sm text-slate-400">No dated records for this period.</p>
+      )}
+    </div>
+  );
+}
+
 export default function ReportCharts({ result }: { result: ReportResult }) {
   const records = result.records;
   return (

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import MultiFileUpload from "@/components/shared/MultiFileUpload";
 import DateRangeFilter from "@/components/shared/DateRangeFilter";
 import FacilityRecordsModal from "@/components/shared/FacilityRecordsModal";
-import ReportCharts from "./ReportCharts";
+import ReportCharts, { YearComparisonChart } from "./ReportCharts";
 import TopFacilitiesChart from "./TopFacilitiesChart";
 import PriorityBadge from "./PriorityBadge";
 import type { ParsedCsv } from "@/types/data";
@@ -111,6 +111,8 @@ export default function GatherOneReport() {
   const [analyzed, setAnalyzed] = useState(false);
   const [stateFilter, setStateFilter] = useState<string>("All");
   const [category, setCategory] = useState<IssueCategory>("all");
+  // Source filter: All / SpotHero / Internal.
+  const [source, setSource] = useState<"all" | "spothero" | "internal">("all");
   const [dateRange, setDateRange] = useState<DateRange>({});
   const [error, setError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
@@ -186,10 +188,17 @@ export default function GatherOneReport() {
     };
   }, [files, storedSpot, internalRows]);
 
+  // Scope the merged dataset to the selected source (All / SpotHero / Internal).
+  const scopedMerged = useMemo<ParsedCsv | null>(() => {
+    if (!merged) return null;
+    if (source === "all") return merged;
+    return { ...merged, rows: merged.rows.filter((r) => r.__source === source) };
+  }, [merged, source]);
+
   const result = useMemo<ReportResult | null>(() => {
-    if (!merged || !analyzed) return null;
+    if (!scopedMerged || !analyzed) return null;
     try {
-      return analyzeReport(merged, filterForCategory(category), {
+      return analyzeReport(scopedMerged, filterForCategory(category), {
         columns: MERGED_COLUMNS,
         stateFilter,
         dateRange,
@@ -198,12 +207,29 @@ export default function GatherOneReport() {
     } catch {
       return null;
     }
-  }, [merged, analyzed, stateFilter, dateRange, category, facilityStates]);
+  }, [scopedMerged, analyzed, stateFilter, dateRange, category, facilityStates]);
+
+  // Same analysis WITHOUT the date-range scope — the Year-over-Year chart needs
+  // every year of history, not just the selected range. Still honors the
+  // category / state / source filters.
+  const resultAllDates = useMemo<ReportResult | null>(() => {
+    if (!scopedMerged || !analyzed) return null;
+    try {
+      return analyzeReport(scopedMerged, filterForCategory(category), {
+        columns: MERGED_COLUMNS,
+        stateFilter,
+        facilityStates,
+      });
+    } catch {
+      return null;
+    }
+  }, [scopedMerged, analyzed, stateFilter, category, facilityStates]);
 
   function reset() {
     setAnalyzed(false);
     setStateFilter("All");
     setCategory("all");
+    setSource("all");
     setDateRange(thisMonthRange());
     setError(null);
     setInternalRows([]);
@@ -406,6 +432,16 @@ export default function GatherOneReport() {
               <option value="inaccessibility">Inaccessibility</option>
             </select>
             <select
+              value={source}
+              onChange={(e) => setSource(e.target.value as "all" | "spothero" | "internal")}
+              aria-label="Filter by data source"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:focus:ring-indigo-500/30"
+            >
+              <option value="all">All Sources</option>
+              <option value="spothero">SpotHero</option>
+              <option value="internal">Internal</option>
+            </select>
+            <select
               value={stateFilter}
               onChange={(e) => setStateFilter(e.target.value)}
               aria-label="Filter by state"
@@ -472,14 +508,22 @@ export default function GatherOneReport() {
         </div>
       )}
 
-      {analyzed && result && <ReportDashboard result={result} />}
+      {analyzed && result && (
+        <ReportDashboard result={result} yoyRecords={(resultAllDates ?? result).records} />
+      )}
     </div>
   );
 }
 
 /* ----------------------------- Dashboard ----------------------------- */
 
-function ReportDashboard({ result }: { result: ReportResult }) {
+function ReportDashboard({
+  result,
+  yoyRecords,
+}: {
+  result: ReportResult;
+  yoyRecords: FilteredRecord[];
+}) {
   const { totals, warnings } = result;
   const cat = result.filterLabel; // "All Issues" | "Lot Full" | "Inaccessibility"
 
@@ -590,6 +634,15 @@ function ReportDashboard({ result }: { result: ReportResult }) {
           </Section>
         );
       })()}
+
+      {/* Year-over-Year comparison — same period across years (respects the
+          category / state / source filters, but not the date range). */}
+      <Section
+        title="Year-over-Year Comparison"
+        subtitle="Compare the same period across years — e.g. Jan 2025 vs Jan 2026, or Q1 2025 vs Q1 2026. Uses the full history (honors category / state / source filters, ignores the date range)."
+      >
+        <YearComparisonChart records={yoyRecords} />
+      </Section>
 
       {/* Charts */}
       <Section title="Charts" subtitle={`Visual breakdown of ${cat} impact`}>
