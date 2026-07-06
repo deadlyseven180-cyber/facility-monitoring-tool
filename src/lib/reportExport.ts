@@ -346,7 +346,7 @@ export function buildReportHtml(
     display: inline-block; padding: 2px 10px; border-radius: 999px;
     font-size: 11px; font-weight: 700;
   }
-  .charts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 18px; }
   .charts-full { margin-bottom: 18px; }
   .chart {
     margin: 0; background: #ffffff; border: 1px solid #e2e8f0;

@@ -360,7 +360,7 @@ function ConfigurableChart({
           </select>
         </div>
       </div>
-      <ChartCanvas config={config} height={250} ariaLabel={`${modeLabel} chart`} />
+      <ChartCanvas config={config} height={320} ariaLabel={`${modeLabel} chart`} />
     </div>
   );
 }
@@ -490,7 +490,7 @@ export function YearComparisonChart({ records }: { records: FilteredRecord[] }) 
         </div>
       </div>
       {years.length > 0 ? (
-        <ChartCanvas config={config} height={260} ariaLabel={`Year-over-year ${periodLabel} chart`} />
+        <ChartCanvas config={config} height={400} ariaLabel={`Year-over-year ${periodLabel} chart`} />
       ) : (
         <p className="py-12 text-center text-sm text-slate-400">No dated records for this period.</p>
       )}

@@ -235,7 +235,7 @@ export default function TopFacilitiesChart({
       ) : (
         <ChartCanvas
           config={config}
-          height={view === "facility" ? Math.max(topFac.length * 34, 130) : 260}
+          height={view === "facility" ? Math.max(topFac.length * 58, 260) : 380}
           ariaLabel={title}
         />
       )}
