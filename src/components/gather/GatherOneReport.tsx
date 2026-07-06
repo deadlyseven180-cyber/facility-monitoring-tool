@@ -569,14 +569,14 @@ function ReportDashboard({
         return (
           <Section
             title="Attention Required"
-            subtitle={`Top 5 facilities by complaints${both ? " — Lot Full and Inaccessibility" : showLF ? " — Lot Full" : " — Inaccessibility"}`}
+            subtitle={`Top 5 facilities by complaints in the latest month of uploaded data${both ? "" : showLF ? " · Lot Full" : " · Inaccessibility"}`}
           >
             <div className={`grid grid-cols-1 gap-4 ${both ? "xl:grid-cols-2" : ""}`}>
               {showLF && (
-                <TopFacilitiesChart result={result} category="lot_full" limit={5} />
+                <TopFacilitiesChart result={result} category="lot_full" limit={5} latestMonthOnly />
               )}
               {showIA && (
-                <TopFacilitiesChart result={result} category="inaccessibility" limit={5} />
+                <TopFacilitiesChart result={result} category="inaccessibility" limit={5} latestMonthOnly />
               )}
             </div>
           </Section>
@@ -587,7 +587,7 @@ function ReportDashboard({
           category / state / source filters, but not the date range). */}
       <Section
         title="Year-over-Year Comparison"
-        subtitle="Compare the same period across years — e.g. Jan 2025 vs Jan 2026, or Q1 2025 vs Q1 2026. Uses the full history (honors category / state / source filters, ignores the date range)."
+        subtitle="Complaints per month compared across years (e.g. 2025 vs 2026) — one bar per year for each month. Reflects the category / source / state filters; uses the full history, not the date range."
       >
         <YearComparisonChart records={yoyRecords} />
       </Section>

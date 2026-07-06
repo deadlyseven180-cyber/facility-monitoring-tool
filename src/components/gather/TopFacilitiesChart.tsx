@@ -55,10 +55,13 @@ export default function TopFacilitiesChart({
   result,
   category,
   limit = 5,
+  latestMonthOnly = false,
 }: {
   result: ReportResult;
   category: "lot_full" | "inaccessibility";
   limit?: number;
+  /** Scope to the latest month of uploaded (SpotHero) data only. */
+  latestMonthOnly?: boolean;
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -68,10 +71,28 @@ export default function TopFacilitiesChart({
   const [view, setView] = useState<View>("facility");
   const catLabel = category === "lot_full" ? "Lot Full" : "Inaccessibility";
 
-  const records = useMemo(
-    () => result.records.filter((r) => r.category === category),
-    [result, category],
-  );
+  // Latest year-month of UPLOADED (SpotHero) data — falls back to the latest of
+  // any source. Used to scope the Attention Required charts to the newest month.
+  const latestMonth = useMemo(() => {
+    let maxSpot = "";
+    let maxAny = "";
+    for (const r of result.records) {
+      const iso = toIsoDate(r.starts);
+      if (!iso) continue;
+      const ym = iso.slice(0, 7);
+      if (ym > maxAny) maxAny = ym;
+      if (r.source === "spothero" && ym > maxSpot) maxSpot = ym;
+    }
+    return maxSpot || maxAny;
+  }, [result]);
+
+  const records = useMemo(() => {
+    const base = result.records.filter((r) => r.category === category);
+    if (latestMonthOnly && latestMonth) {
+      return base.filter((r) => (toIsoDate(r.starts) ?? "").slice(0, 7) === latestMonth);
+    }
+    return base;
+  }, [result, category, latestMonthOnly, latestMonth]);
 
   // Top facilities by complaint count.
   const topFac = useMemo(() => {
@@ -204,10 +225,14 @@ export default function TopFacilitiesChart({
     } as unknown as ChartConfiguration;
   }, [view, topFac, biweekly, text, grid]);
 
+  const monthLabel =
+    latestMonthOnly && latestMonth
+      ? `${MONTHS_SHORT[Number(latestMonth.slice(5, 7)) - 1]} ${latestMonth.slice(0, 4)}`
+      : "";
   const title =
     view === "facility"
-      ? `Top ${limit} ${catLabel}`
-      : `Top ${limit} ${catLabel} — Every 2 Weeks`;
+      ? `Top ${limit} ${catLabel}${monthLabel ? ` — ${monthLabel}` : ""}`
+      : `Top ${limit} ${catLabel} — Every 2 Weeks${monthLabel ? ` · ${monthLabel}` : ""}`;
   const empty =
     view === "facility" ? topFac.length === 0 : biweekly.keys.length === 0;
 

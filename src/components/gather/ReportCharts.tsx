@@ -367,43 +367,43 @@ function ConfigurableChart({
 
 /* --------------------- Year-over-Year comparison chart --------------------- */
 
-/** Selectable comparison periods: full year, each quarter, or a single month. */
+/** Selectable month range shown on the X-axis. */
 const YOY_PERIODS: { value: string; label: string; months: number[] }[] = [
   { value: "full", label: "Full Year", months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] },
+  { value: "h1", label: "Jan–Jun", months: [1, 2, 3, 4, 5, 6] },
+  { value: "h2", label: "Jul–Dec", months: [7, 8, 9, 10, 11, 12] },
   { value: "q1", label: "Q1 · Jan–Mar", months: [1, 2, 3] },
   { value: "q2", label: "Q2 · Apr–Jun", months: [4, 5, 6] },
   { value: "q3", label: "Q3 · Jul–Sep", months: [7, 8, 9] },
   { value: "q4", label: "Q4 · Oct–Dec", months: [10, 11, 12] },
-  ...MONTHS_SHORT.map((m, i) => ({ value: `m${i + 1}`, label: m, months: [i + 1] })),
 ];
 
-/** Draws the stacked total above each bar. */
-function stackTotalPlugin(color: string) {
+// One color per year (oldest → newest): gold, navy, then extras.
+const YEAR_PALETTE = ["#c19a3e", "#1e3a5f", "#0d9488", "#a855f7", "#ef4444", "#ec4899"];
+
+/** Draws each bar/point's value just above it. */
+function valueOnBarsPlugin(color: string) {
   return {
-    id: "yoyStackTotal",
+    id: "yoyValues",
     afterDatasetsDraw(chart: {
       ctx: CanvasRenderingContext2D;
       data: { datasets: { data: unknown[] }[] };
-      getDatasetMeta: (i: number) => { data: { x: number; y: number }[] };
+      getDatasetMeta: (i: number) => { hidden?: boolean; data: { x: number; y: number }[] };
     }) {
       const { ctx } = chart;
-      const meta0 = chart.getDatasetMeta(0);
-      if (!meta0?.data) return;
       ctx.save();
-      ctx.font = "bold 11px 'Segoe UI', system-ui, sans-serif";
+      ctx.font = "bold 9px 'Segoe UI', system-ui, sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
       ctx.fillStyle = color;
-      meta0.data.forEach((_, i) => {
-        let total = 0;
-        let topY = Infinity;
-        let x = 0;
-        chart.data.datasets.forEach((ds, di) => {
-          total += Number(ds.data[i]) || 0;
-          const el = chart.getDatasetMeta(di).data[i];
-          if (el && el.y < topY) { topY = el.y; x = el.x; }
+      chart.data.datasets.forEach((ds, di) => {
+        const meta = chart.getDatasetMeta(di);
+        if (meta.hidden) return;
+        meta.data.forEach((el, i) => {
+          const v = ds.data[i] as number | null;
+          if (v == null || v === 0) return;
+          ctx.fillText(String(v), el.x, el.y - 2);
         });
-        if (total > 0) ctx.fillText(String(total), x, topY - 4);
       });
       ctx.restore();
     },
@@ -411,9 +411,10 @@ function stackTotalPlugin(color: string) {
 }
 
 /**
- * Compares the same calendar period across every year present in the data —
- * e.g. Jan 2025 vs Jan 2026, or Q1 2025 vs Q1 2026. Each year is one stacked
- * bar (Lot Full + Inaccessibility); an all-empty category series auto-hides.
+ * Month-by-month comparison across years in one chart: the X-axis is the months
+ * in the selected range and each year present is its own grouped series (e.g.
+ * complaints per month for 2025 vs 2026). Reflects the active category filter,
+ * so choosing "Lot Full" shows Lot Full counts per month.
  */
 export function YearComparisonChart({ records }: { records: FilteredRecord[] }) {
   const { theme } = useTheme();
@@ -423,49 +424,55 @@ export function YearComparisonChart({ records }: { records: FilteredRecord[] }) 
   const [period, setPeriod] = useState("full");
   const [type, setType] = useState<"bar" | "line">("bar");
 
-  const { config, years } = useMemo(() => {
-    const months = new Set(YOY_PERIODS.find((p) => p.value === period)?.months ?? []);
-    const byYear = new Map<number, { lf: number; ia: number }>();
+  const { config, hasData } = useMemo(() => {
+    const months = YOY_PERIODS.find((p) => p.value === period)?.months ?? [];
+    const monthSet = new Set(months);
+    const years = new Set<number>();
+    const counts = new Map<string, number>(); // `${year}-${month}` → count
     for (const r of records) {
       const iso = toIsoDate(r.starts);
       if (!iso) continue;
       const [y, m] = iso.split("-").map(Number);
-      if (!months.has(m)) continue;
-      const e = byYear.get(y) ?? { lf: 0, ia: 0 };
-      if (r.category === "lot_full") e.lf++;
-      else if (r.category === "inaccessibility") e.ia++;
-      byYear.set(y, e);
+      if (!monthSet.has(m)) continue;
+      years.add(y);
+      const k = `${y}-${m}`;
+      counts.set(k, (counts.get(k) ?? 0) + 1);
     }
-    const ys = [...byYear.keys()].sort((a, b) => a - b);
-    const lf = ys.map((y) => byYear.get(y)!.lf);
-    const ia = ys.map((y) => byYear.get(y)!.ia);
-    const hasLF = lf.some((n) => n > 0);
-    const hasIA = ia.some((n) => n > 0);
-    const mk = (label: string, d: number[], color: string) => ({
-      label, data: d, backgroundColor: color, borderColor: color,
-      borderRadius: type === "bar" ? 4 : 0, tension: 0.3, fill: false, stack: "a",
+    const yearList = [...years].sort((a, b) => a - b);
+    const labels = months.map((m) => MONTHS_SHORT[m - 1]);
+    const datasets = yearList.map((y, i) => {
+      const color = YEAR_PALETTE[i % YEAR_PALETTE.length];
+      return {
+        label: String(y),
+        data: months.map((m) => counts.get(`${y}-${m}`) ?? 0),
+        backgroundColor: color,
+        borderColor: color,
+        borderRadius: type === "bar" ? 4 : 0,
+        tension: 0.3,
+        fill: false,
+        pointRadius: 3,
+      };
     });
-    const datasets = [
-      ...(hasLF || !hasIA ? [mk("Lot Full", lf, BLUE)] : []),
-      ...(hasIA || !hasLF ? [mk("Inaccessibility", ia, PURPLE)] : []),
-    ];
     const cfg = {
       type,
-      plugins: [stackTotalPlugin(text)],
-      data: { labels: ys.map(String), datasets },
+      plugins: [valueOnBarsPlugin(text)],
+      data: { labels, datasets },
       options: {
-        responsive: true, maintainAspectRatio: false, layout: { padding: { top: 20 } },
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: { padding: { top: 20 } },
+        interaction: { mode: "index", intersect: false },
         plugins: {
           legend: { labels: { color: text, boxWidth: 12 } },
-          tooltip: { callbacks: { footer: (items: { parsed: { y: number | null } }[]) => `Total: ${items.reduce((s, it) => s + (it.parsed.y || 0), 0)}` } },
+          tooltip: { callbacks: { label: (c: { dataset: { label?: string }; parsed: { y: number | null } }) => `${c.dataset.label}: ${c.parsed.y ?? 0}` } },
         },
         scales: {
-          x: { stacked: true, ticks: { color: text }, grid: { display: false }, title: { display: true, text: "Year", color: text } },
-          y: { stacked: true, beginAtZero: true, ticks: { color: text, precision: 0 }, grid: { color: grid }, title: { display: true, text: "Complaints", color: text, font: { size: 11, weight: "bold" } } },
+          x: { ticks: { color: text }, grid: { display: false }, title: { display: true, text: "Month", color: text } },
+          y: { beginAtZero: true, ticks: { color: text, precision: 0 }, grid: { color: grid }, title: { display: true, text: "Complaints", color: text, font: { size: 11, weight: "bold" } } },
         },
       },
     } as unknown as ChartConfiguration;
-    return { config: cfg, years: ys };
+    return { config: cfg, hasData: yearList.length > 0 };
   }, [records, period, type, text, grid]);
 
   const periodLabel = YOY_PERIODS.find((p) => p.value === period)?.label ?? "Full Year";
@@ -475,10 +482,10 @@ export function YearComparisonChart({ records }: { records: FilteredRecord[] }) 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h4 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
           <span className="h-4 w-1 rounded-full bg-indigo-500" />
-          Year-over-Year — {periodLabel}
+          By Month, Year-over-Year — {periodLabel}
         </h4>
         <div className="flex items-center gap-2">
-          <select value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Comparison period" className={selectCls}>
+          <select value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Month range" className={selectCls}>
             {YOY_PERIODS.map((p) => (
               <option key={p.value} value={p.value}>{p.label}</option>
             ))}
@@ -489,8 +496,8 @@ export function YearComparisonChart({ records }: { records: FilteredRecord[] }) 
           </select>
         </div>
       </div>
-      {years.length > 0 ? (
-        <ChartCanvas config={config} height={400} ariaLabel={`Year-over-year ${periodLabel} chart`} />
+      {hasData ? (
+        <ChartCanvas config={config} height={400} ariaLabel={`Monthly year-over-year ${periodLabel} chart`} />
       ) : (
         <p className="py-12 text-center text-sm text-slate-400">No dated records for this period.</p>
       )}
