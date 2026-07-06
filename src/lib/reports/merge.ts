@@ -5,6 +5,7 @@
 import type { ParsedCsv } from "@/types/data";
 import { resolveColumn, toIsoDate } from "./columns";
 import { stateForCity } from "./cities";
+import { normalizeState } from "./facilityKey";
 import { ALL_ISSUES_FILTER, matchesFilter } from "./filters";
 import {
   detectColumns,
@@ -69,18 +70,29 @@ export function mergeReportFiles(files: SourcedFile[]): ParsedCsv {
         "Spothero City",
         "City",
       ]);
+      // MA business rule: Massachusetts rows carry the "Total Remit" column
+      // (col O = gross remit − refunds − manual adjustments = SpotHero's
+      // control-panel "Net Remit"); every other state keeps the default
+      // "Net Total Remit" column (col Z, net of taxes). Resolve the MA column
+      // once; fall back to the default remit column when it's absent.
+      const maRemitCol =
+        resolveColumn(data.headers, ["Total Remit", "Total Remittance"]) ??
+        cols.totalRemit;
       for (const r of data.rows) {
         const stateRaw = val(r, cols.facility || null).trim();
         const mapped = stateForCity(val(r, cityCol));
+        const state = mapped ?? stateRaw;
+        const remitCol =
+          normalizeState(state) === "MA" ? maRemitCol : cols.totalRemit;
         rows.push({
           __source: "spothero",
           reason: val(r, cols.reason || null),
           rentalId: val(r, cols.rentalId || null),
           spot: val(r, cols.spot || null),
           starts: val(r, cols.starts || null),
-          state: mapped ?? stateRaw,
+          state,
           refund: val(r, cols.refundAmount || null),
-          totalRemit: val(r, cols.totalRemit || null),
+          totalRemit: val(r, (remitCol || null) as string | null),
         });
       }
     } else if (source === "internal") {

@@ -230,6 +230,17 @@ export function analyzeReport(
     cols = map as ColumnMap;
   }
 
+  // MA business rule: for Massachusetts rows the executive/summary "Total Net
+  // Remit" must be summed from the CSV's "Total Remit" column (col O = gross
+  // remit − refunds − manual adjustments, which is exactly what SpotHero's
+  // control panel reports as "Net Remit"), NOT the tax-netted "Net Total Remit"
+  // column (col Z) used for every other state. Resolve that column once and use
+  // it only for MA; fall back to the default remit column when it's absent.
+  const maRemitCol =
+    resolveColumn(data.headers, ["Total Remit", "Total Remittance"]) ?? cols.totalRemit;
+  const remitColFor = (state: string): string =>
+    state === "MA" ? maRemitCol : cols.totalRemit;
+
   // Raw facility label from the "Spot" column, falling back to MA State.
   const facilityLabelRaw = (row: Record<string, string>): string =>
     (row[cols.spot] ?? "").trim() ||
@@ -342,7 +353,9 @@ export function analyzeReport(
   let netRemitTotal = 0;
   let refundAllTotal = 0;
   for (const row of rows) {
-    const remit = parseMoney(row[cols.totalRemit]);
+    const state = rowState(row);
+    // MA rows sum the "Total Remit" column; all other states keep the default.
+    const remit = parseMoney(row[remitColFor(state)]);
     const refund = parseMoney(row[cols.refundAmount]);
     netRemitTotal += remit;
     refundAllTotal += refund;
@@ -350,7 +363,6 @@ export function analyzeReport(
     remitByFacility.set(key, (remitByFacility.get(key) ?? 0) + remit);
     refundByFacility.set(key, (refundByFacility.get(key) ?? 0) + refund);
     reservationsByFacility.set(key, (reservationsByFacility.get(key) ?? 0) + 1);
-    const state = rowState(row);
     remitByState.set(state, (remitByState.get(state) ?? 0) + remit);
   }
 
