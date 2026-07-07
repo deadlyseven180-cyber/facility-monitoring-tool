@@ -55,13 +55,13 @@ export default function TopFacilitiesChart({
   result,
   category,
   limit = 5,
-  latestMonthOnly = false,
+  month = "",
 }: {
   result: ReportResult;
   category: "lot_full" | "inaccessibility";
   limit?: number;
-  /** Scope to the latest month of uploaded (SpotHero) data only. */
-  latestMonthOnly?: boolean;
+  /** Scope to this month (YYYY-MM); "" = all records. Controlled by the parent. */
+  month?: string;
 }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
@@ -71,49 +71,18 @@ export default function TopFacilitiesChart({
   const [view, setView] = useState<View>("facility");
   const catLabel = category === "lot_full" ? "Lot Full" : "Inaccessibility";
 
-  // Records for this category, and the months present (latest first) for the
-  // month picker shown when scoped to a single month.
+  // Records for this category, scoped to the selected month (from the parent's
+  // Attention Required month picker).
   const catRecords = useMemo(
     () => result.records.filter((r) => r.category === category),
     [result, category],
   );
-  const monthsPresent = useMemo(() => {
-    const set = new Set<string>();
-    for (const r of catRecords) {
-      const iso = toIsoDate(r.starts);
-      if (iso) set.add(iso.slice(0, 7));
-    }
-    return [...set].sort().reverse(); // latest first
-  }, [catRecords]);
-  // Selected month (YYYY-MM); "" falls back to the default month.
-  const [selMonth, setSelMonth] = useState<string>("");
-  // Default to the latest month that has UPLOADED (SpotHero) data for this
-  // category — so a stray internal record in a newer month doesn't override the
-  // uploaded reporting month. Falls back to the latest month present.
-  const defaultMonth = useMemo(() => {
-    let maxSpot = "";
-    for (const r of catRecords) {
-      if (r.source !== "spothero") continue;
-      const iso = toIsoDate(r.starts);
-      if (iso) {
-        const ym = iso.slice(0, 7);
-        if (ym > maxSpot) maxSpot = ym;
-      }
-    }
-    return maxSpot || monthsPresent[0] || "";
-  }, [catRecords, monthsPresent]);
-  const activeMonth = latestMonthOnly
-    ? monthsPresent.includes(selMonth)
-      ? selMonth
-      : defaultMonth
-    : "";
-
   const records = useMemo(() => {
-    if (!activeMonth) return catRecords;
+    if (!month) return catRecords;
     return catRecords.filter(
-      (r) => (toIsoDate(r.starts) ?? "").slice(0, 7) === activeMonth,
+      (r) => (toIsoDate(r.starts) ?? "").slice(0, 7) === month,
     );
-  }, [catRecords, activeMonth]);
+  }, [catRecords, month]);
 
   const fmtMonth = (ym: string) =>
     ym ? `${MONTHS_SHORT[Number(ym.slice(5, 7)) - 1]} ${ym.slice(0, 4)}` : "";
@@ -249,7 +218,7 @@ export default function TopFacilitiesChart({
     } as unknown as ChartConfiguration;
   }, [view, topFac, biweekly, text, grid]);
 
-  const monthLabel = latestMonthOnly ? fmtMonth(activeMonth) : "";
+  const monthLabel = fmtMonth(month);
   const title =
     view === "facility"
       ? `Top ${limit} ${catLabel}${monthLabel ? ` — ${monthLabel}` : ""}`
@@ -264,29 +233,15 @@ export default function TopFacilitiesChart({
           <span className="h-4 w-1 rounded-full bg-indigo-500" />
           {title}
         </h4>
-        <div className="flex items-center gap-2">
-          {latestMonthOnly && monthsPresent.length > 0 && (
-            <select
-              value={activeMonth}
-              onChange={(e) => setSelMonth(e.target.value)}
-              aria-label="Month"
-              className={selectCls}
-            >
-              {monthsPresent.map((m) => (
-                <option key={m} value={m}>{fmtMonth(m)}</option>
-              ))}
-            </select>
-          )}
-          <select
-            value={view}
-            onChange={(e) => setView(e.target.value as View)}
-            aria-label="View"
-            className={selectCls}
-          >
-            <option value="facility">By Facility (Top {limit})</option>
-            <option value="biweekly">Every 2 Weeks</option>
-          </select>
-        </div>
+        <select
+          value={view}
+          onChange={(e) => setView(e.target.value as View)}
+          aria-label="View"
+          className={selectCls}
+        >
+          <option value="facility">By Facility (Top {limit})</option>
+          <option value="biweekly">Every 2 Weeks</option>
+        </select>
       </div>
       {empty ? (
         <p className="py-10 text-center text-sm text-slate-400 dark:text-slate-500">

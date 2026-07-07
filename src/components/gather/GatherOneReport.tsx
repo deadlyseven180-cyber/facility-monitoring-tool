@@ -108,6 +108,15 @@ function thisMonthRange(): DateRange {
 const filterSelectCls =
   "rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:focus:ring-indigo-500/30";
 
+const MONTHS_ABBR = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+/** "2026-06" → "Jun 2026". */
+function fmtYm(ym: string): string {
+  return ym ? `${MONTHS_ABBR[Number(ym.slice(5, 7)) - 1]} ${ym.slice(0, 4)}` : "";
+}
+
 export default function GatherOneReport() {
   const [files, setFiles] = useState<ParsedCsv[]>([]);
   // Internal Lot Full / Inaccessibility rows pulled from Airtable on generate.
@@ -227,11 +236,32 @@ export default function GatherOneReport() {
     }
   }, [merged, analyzed, stateFilter, category, facilityStates]);
 
+  // Shared "Attention Required" month — drives the Top-5 charts AND the
+  // Recommended Action Plan / Preventive Measures. "" resolves to the latest
+  // month (preferring the newest uploaded SpotHero month).
+  const [attnMonth, setAttnMonth] = useState<string>("");
+  const attn = useMemo(() => {
+    const recs = result?.records ?? [];
+    let maxSpot = "";
+    let maxAny = "";
+    const set = new Set<string>();
+    for (const r of recs) {
+      const ym = (toIsoDate(r.starts) ?? "").slice(0, 7);
+      if (!ym) continue;
+      set.add(ym);
+      if (ym > maxAny) maxAny = ym;
+      if (r.source === "spothero" && ym > maxSpot) maxSpot = ym;
+    }
+    return { months: [...set].sort().reverse(), def: maxSpot || maxAny };
+  }, [result]);
+  const activeAttn = attn.months.includes(attnMonth) ? attnMonth : attn.def;
+
   function reset() {
     setAnalyzed(false);
     setStateFilter("All");
     setCategory("all");
     setSource("all");
+    setAttnMonth("");
     setDateRange(thisMonthRange());
     setError(null);
     setInternalRows([]);
@@ -441,7 +471,7 @@ export default function GatherOneReport() {
                 </select>
               </Field>
               <div className="flex items-center gap-2 self-end">
-                {merged && <ExportMenu result={result} dateRange={dateRange} stateFilter={stateFilter} />}
+                {merged && <ExportMenu result={result} dateRange={dateRange} stateFilter={stateFilter} attnMonth={activeAttn} />}
                 <button
                   type="button"
                   onClick={handleClear}
@@ -466,6 +496,9 @@ export default function GatherOneReport() {
           result={result}
           sourceYoyRecords={(resultAllSources ?? result).records}
           sourceYoyMonthly={(resultAllSources ?? result).monthly}
+          attnMonths={attn.months}
+          attnMonth={activeAttn}
+          onAttnMonth={setAttnMonth}
         />
       )}
     </div>
@@ -478,10 +511,16 @@ function ReportDashboard({
   result,
   sourceYoyRecords,
   sourceYoyMonthly,
+  attnMonths,
+  attnMonth,
+  onAttnMonth,
 }: {
   result: ReportResult;
   sourceYoyRecords: FilteredRecord[];
   sourceYoyMonthly: MonthlyPoint[];
+  attnMonths: string[];
+  attnMonth: string;
+  onAttnMonth: (m: string) => void;
 }) {
   const { totals, warnings } = result;
   const cat = result.filterLabel; // "All Issues" | "Lot Full" | "Inaccessibility"
@@ -583,14 +622,31 @@ function ReportDashboard({
         return (
           <Section
             title="Attention Required"
-            subtitle={`Top 5 facilities by complaints in the latest month of uploaded data${both ? "" : showLF ? " · Lot Full" : " · Inaccessibility"}`}
+            subtitle={`Top 5 facilities by complaints for the selected month${both ? "" : showLF ? " · Lot Full" : " · Inaccessibility"} — the Action Plan & Preventive Measures below follow this month.`}
           >
+            {attnMonths.length > 0 && (
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                  Month
+                </span>
+                <select
+                  value={attnMonth}
+                  onChange={(e) => onAttnMonth(e.target.value)}
+                  aria-label="Attention Required month"
+                  className={filterSelectCls}
+                >
+                  {attnMonths.map((m) => (
+                    <option key={m} value={m}>{fmtYm(m)}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className={`grid grid-cols-1 gap-4 ${both ? "xl:grid-cols-2" : ""}`}>
               {showLF && (
-                <TopFacilitiesChart result={result} category="lot_full" limit={5} latestMonthOnly />
+                <TopFacilitiesChart result={result} category="lot_full" limit={5} month={attnMonth} />
               )}
               {showIA && (
-                <TopFacilitiesChart result={result} category="inaccessibility" limit={5} latestMonthOnly />
+                <TopFacilitiesChart result={result} category="inaccessibility" limit={5} month={attnMonth} />
               )}
             </div>
           </Section>
@@ -646,14 +702,14 @@ function ReportDashboard({
         title="Recommended Action Plan"
         subtitle="Prioritized operational actions derived from the data"
       >
-        <NarrativeCard items={buildActionPlan(result)} ordered accent="indigo" />
+        <NarrativeCard items={buildActionPlan(result, attnMonth)} ordered accent="indigo" />
       </Section>
 
       <Section
         title={`Preventive Measures — Reducing ${cat}`}
         subtitle="Broad, proactive measures to prevent recurrence"
       >
-        <NarrativeCard items={buildPreventionPlan(result)} ordered accent="teal" />
+        <NarrativeCard items={buildPreventionPlan(result, attnMonth)} ordered accent="teal" />
       </Section>
     </div>
   );
@@ -949,10 +1005,12 @@ function ExportMenu({
   result,
   dateRange,
   stateFilter,
+  attnMonth,
 }: {
   result: ReportResult;
   dateRange: DateRange;
   stateFilter: string;
+  attnMonth: string;
 }) {
   const [open, setOpen] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
@@ -969,6 +1027,7 @@ function ExportMenu({
       dateRange,
       snapshotTables(),
       stateFilter,
+      attnMonth,
     );
   }
 

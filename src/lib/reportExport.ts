@@ -105,7 +105,10 @@ export function buildSummary(result: ReportResult): string[] {
 /** Latest month with data (prefers the newest uploaded/SpotHero month), plus
  *  the facilities active that month — the "action required" set that the
  *  Attention Required charts highlight. */
-function actionRequired(result: ReportResult): {
+function actionRequired(
+  result: ReportResult,
+  monthOverride?: string,
+): {
   monthLabel: string;
   facilities: {
     name: string;
@@ -116,15 +119,20 @@ function actionRequired(result: ReportResult): {
     ia: number;
   }[];
 } {
-  let maxSpot = "";
-  let maxAny = "";
-  for (const r of result.records) {
-    const ym = (toIsoDate(r.starts) ?? "").slice(0, 7);
-    if (!ym) continue;
-    if (ym > maxAny) maxAny = ym;
-    if (r.source === "spothero" && ym > maxSpot) maxSpot = ym;
+  // Use the caller's selected month (from the Attention Required picker) when
+  // given; otherwise default to the latest month (preferring uploaded SpotHero).
+  let month = monthOverride || "";
+  if (!month) {
+    let maxSpot = "";
+    let maxAny = "";
+    for (const r of result.records) {
+      const ym = (toIsoDate(r.starts) ?? "").slice(0, 7);
+      if (!ym) continue;
+      if (ym > maxAny) maxAny = ym;
+      if (r.source === "spothero" && ym > maxSpot) maxSpot = ym;
+    }
+    month = maxSpot || maxAny;
   }
-  const month = maxSpot || maxAny;
   const m = new Map<
     string,
     { name: string; state: string; complaints: number; refund: number; lf: number; ia: number }
@@ -149,10 +157,10 @@ function actionRequired(result: ReportResult): {
   };
 }
 
-/** Recommended actions — focused on the latest month's action-required facilities. */
-export function buildActionPlan(result: ReportResult): string[] {
+/** Recommended actions — focused on the selected (or latest) month's action-required facilities. */
+export function buildActionPlan(result: ReportResult, month?: string): string[] {
   const cat = result.filterLabel;
-  const { monthLabel, facilities } = actionRequired(result);
+  const { monthLabel, facilities } = actionRequired(result, month);
   if (facilities.length === 0)
     return [
       `No action-required facilities in ${monthLabel}. Maintain the current monitoring cadence across facilities.`,
@@ -181,10 +189,10 @@ export function buildActionPlan(result: ReportResult): string[] {
   return recs;
 }
 
-/** Preventive measures — targeted at the latest month's action-required facilities. */
-export function buildPreventionPlan(result: ReportResult): string[] {
+/** Preventive measures — targeted at the selected (or latest) month's action-required facilities. */
+export function buildPreventionPlan(result: ReportResult, month?: string): string[] {
   const cat = result.filterLabel;
-  const { monthLabel, facilities } = actionRequired(result);
+  const { monthLabel, facilities } = actionRequired(result, month);
   const top = facilities.slice(0, 5).map((f) => esc(f.name)).join(", ");
   const measures: string[] = [];
   if (top)
@@ -267,6 +275,7 @@ export function buildReportHtml(
   dateRange?: DateRange,
   tables: TableSnapshot[] = [],
   stateFilter?: string,
+  attnMonth?: string,
 ): string {
   const { totals } = result;
   const cat = result.filterLabel; // "All Issues" | "Lot Full" | "Inaccessibility"
@@ -479,10 +488,10 @@ export function buildReportHtml(
   ${tablesHtml}
 
   <h2>Recommended Action Plan</h2>
-  ${renderNarrative(buildActionPlan(result), true, "#4f46e5")}
+  ${renderNarrative(buildActionPlan(result, attnMonth), true, "#4f46e5")}
 
   <h2>Preventive Measures — Reducing ${esc(cat)}</h2>
-  ${renderNarrative(buildPreventionPlan(result), true, "#0d9488")}
+  ${renderNarrative(buildPreventionPlan(result, attnMonth), true, "#0d9488")}
 
   <div class="foot">Generated ${esc(generatedAt)}</div>
 </body>
