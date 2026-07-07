@@ -3,6 +3,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { networkInterfaces } from "os";
 import { getPublicBaseUrl } from "@/lib/tunnel";
+import { reportsConfigured, saveReport } from "@/lib/reports/reportStore";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -57,13 +58,28 @@ export async function POST(req: Request) {
     return Response.json({ error: "Report is too large." }, { status: 413 });
   }
 
-  await mkdir(DIR, { recursive: true });
   const id = randomUUID().replace(/-/g, "").slice(0, 12);
-  await writeFile(path.join(DIR, `${id}.html`), html, "utf8");
 
-  // Prefer a public live URL (Cloudflare tunnel) so the link works from any
-  // network; fall back to this machine's LAN address if the tunnel is down.
+  // Durable path: store the report in Supabase and hand back the always-on
+  // public URL (the Render deployment serves /r/<id> by reading it back). This
+  // link keeps working even when the machine that generated it is off.
+  if (reportsConfigured()) {
+    try {
+      await saveReport(id, html);
+      const publicBase =
+        process.env.PUBLIC_REPORT_BASE || (await getPublicBaseUrl()) || "";
+      const url = publicBase ? `${publicBase}/r/${id}` : shareUrl(req, id);
+      return Response.json({ id, url, public: Boolean(publicBase), durable: true });
+    } catch {
+      // fall through to the local-disk path below
+    }
+  }
+
+  // Fallback: save to local disk and return a LAN / tunnel URL (works only
+  // while this machine is running).
+  await mkdir(DIR, { recursive: true });
+  await writeFile(path.join(DIR, `${id}.html`), html, "utf8");
   const base = await getPublicBaseUrl();
   const url = base ? `${base}/r/${id}` : shareUrl(req, id);
-  return Response.json({ id, url, public: Boolean(base) });
+  return Response.json({ id, url, public: Boolean(base), durable: false });
 }

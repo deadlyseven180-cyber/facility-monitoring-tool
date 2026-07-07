@@ -348,11 +348,12 @@ export function RateVsRefundChart({ monthly }: { monthly: MonthlyPoint[] }) {
       });
     const cfg = {
       type: "bar",
+      plugins: [valueOnBarsPlugin(text, (n) => `${n}%`)],
       data: { labels, datasets },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        layout: { padding: { top: 20 } },
+        layout: { padding: { top: 22 } },
         interaction: { mode: "index", intersect: false },
         plugins: {
           legend: { labels: { color: text, boxWidth: 12, font: { size: 10 } } },
