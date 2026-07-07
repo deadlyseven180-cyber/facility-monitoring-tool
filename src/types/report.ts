@@ -41,6 +41,20 @@ export interface FacilitySummary {
   priorityLevel: PriorityLevel;
 }
 
+/** Per-month aggregates (all in-scope rows), for year-over-year trend charts. */
+export interface MonthlyPoint {
+  /** "YYYY-MM". */
+  ym: string;
+  /** Reservations = row count that month. */
+  reservations: number;
+  /** Summed net remit that month. */
+  netRemit: number;
+  /** Summed refund column that month (signed). */
+  refund: number;
+  /** Matched complaints that month. */
+  complaints: number;
+}
+
 /** Roll-up grouped by MA State value. */
 export interface StateSummary {
   state: string;
@@ -61,6 +75,8 @@ export interface ReportResult {
   states: StateSummary[];
   /** Top facilities by priority score (highest first). */
   topByPriority: FacilitySummary[];
+  /** Per-month aggregates (sorted by month), for year-over-year trend charts. */
+  monthly: MonthlyPoint[];
   totals: {
     incidentCount: number;
     /** Matched-category refunds total (SpotHero col L + internal amounts). */

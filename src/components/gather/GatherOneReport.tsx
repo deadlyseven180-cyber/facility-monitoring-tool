@@ -4,13 +4,18 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import MultiFileUpload from "@/components/shared/MultiFileUpload";
 import DateRangeFilter from "@/components/shared/DateRangeFilter";
 import FacilityRecordsModal from "@/components/shared/FacilityRecordsModal";
-import ReportCharts, { YearComparisonChart, RefundBySourceChart } from "./ReportCharts";
+import ReportCharts, {
+  YearComparisonChart,
+  RefundBySourceChart,
+  RateVsRefundChart,
+} from "./ReportCharts";
 import TopFacilitiesChart from "./TopFacilitiesChart";
 import PriorityBadge from "./PriorityBadge";
 import type { ParsedCsv } from "@/types/data";
 import type {
   FacilitySummary,
   FilteredRecord,
+  MonthlyPoint,
   PriorityLevel,
   ReportResult,
 } from "@/types/report";
@@ -460,6 +465,7 @@ export default function GatherOneReport() {
         <ReportDashboard
           result={result}
           sourceYoyRecords={(resultAllSources ?? result).records}
+          sourceYoyMonthly={(resultAllSources ?? result).monthly}
         />
       )}
     </div>
@@ -471,9 +477,11 @@ export default function GatherOneReport() {
 function ReportDashboard({
   result,
   sourceYoyRecords,
+  sourceYoyMonthly,
 }: {
   result: ReportResult;
   sourceYoyRecords: FilteredRecord[];
+  sourceYoyMonthly: MonthlyPoint[];
 }) {
   const { totals, warnings } = result;
   const cat = result.filterLabel; // "All Issues" | "Lot Full" | "Inaccessibility"
@@ -606,6 +614,7 @@ function ReportDashboard({
         <div className="space-y-4">
           <ReportCharts records={sourceYoyRecords} />
           <RefundBySourceChart records={sourceYoyRecords} />
+          <RateVsRefundChart monthly={sourceYoyMonthly} />
         </div>
       </Section>
 

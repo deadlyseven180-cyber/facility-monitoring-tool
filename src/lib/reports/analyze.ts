@@ -373,6 +373,13 @@ export function analyzeReport(
   const refundByFacility = new Map<string, number>();
   const reservationsByFacility = new Map<string, number>();
   const remitByState = new Map<string, number>();
+  // Per-month aggregates for the year-over-year trend charts.
+  const monthlyMap = new Map<
+    string,
+    { reservations: number; netRemit: number; refund: number; complaints: number }
+  >();
+  const monthOf = (row: Record<string, string>): string =>
+    (toIsoDate(row[cols.starts]) ?? "").slice(0, 7);
   let netRemitTotal = 0;
   let refundAllTotal = 0;
   for (const row of rows) {
@@ -387,6 +394,15 @@ export function analyzeReport(
     refundByFacility.set(key, (refundByFacility.get(key) ?? 0) + refund);
     reservationsByFacility.set(key, (reservationsByFacility.get(key) ?? 0) + 1);
     remitByState.set(state, (remitByState.get(state) ?? 0) + remit);
+    const ym = monthOf(row);
+    if (ym) {
+      const e =
+        monthlyMap.get(ym) ?? { reservations: 0, netRemit: 0, refund: 0, complaints: 0 };
+      e.reservations += 1;
+      e.netRemit += remit;
+      e.refund += refund;
+      monthlyMap.set(ym, e);
+    }
   }
 
   // Filter matching records and group by facility.
@@ -459,6 +475,14 @@ export function analyzeReport(
       source: recSource,
       category: categoryForReason(reason),
     });
+
+    const ymC = monthOf(row);
+    if (ymC) {
+      const e =
+        monthlyMap.get(ymC) ?? { reservations: 0, netRemit: 0, refund: 0, complaints: 0 };
+      e.complaints += 1;
+      monthlyMap.set(ymC, e);
+    }
 
     const g = grouped.get(key) ?? { incidentCount: 0, refundTotal: 0 };
     g.incidentCount += 1;
@@ -541,6 +565,9 @@ export function analyzeReport(
     facilities,
     states,
     topByPriority,
+    monthly: [...monthlyMap.entries()]
+      .map(([ym, v]) => ({ ym, ...v }))
+      .sort((a, b) => a.ym.localeCompare(b.ym)),
     totals: {
       incidentCount: records.length,
       refundTotal: records.reduce((s, r) => s + r.refundAmount, 0),

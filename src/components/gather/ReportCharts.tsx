@@ -6,7 +6,7 @@ import ChartCanvas from "@/components/shared/ChartCanvas";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { formatCurrency } from "@/lib/format";
 import { toIsoDate } from "@/lib/reports/columns";
-import type { FilteredRecord } from "@/types/report";
+import type { FilteredRecord, MonthlyPoint } from "@/types/report";
 
 const MONTHS_SHORT = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -287,6 +287,108 @@ export function RefundBySourceChart({ records }: { records: FilteredRecord[] }) 
         <ChartCanvas config={config} height={400} ariaLabel={`Refunds internal vs SpotHero ${periodLabel} chart`} />
       ) : (
         <p className="py-12 text-center text-sm text-slate-400">No refunds for this period.</p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Complaint rate (% of reservations) vs refund % of net remit, year-over-year.
+ * Bars = complaint rate per year; dashed lines = refund % of net remit per year
+ * (this year vs last year), by month.
+ */
+export function RateVsRefundChart({ monthly }: { monthly: MonthlyPoint[] }) {
+  const { theme } = useTheme();
+  const dark = theme === "dark";
+  const text = dark ? "#cbd5e1" : "#475569";
+  const grid = dark ? "rgba(148,163,184,0.16)" : "rgba(148,163,184,0.22)";
+  const [period, setPeriod] = useState("h1");
+
+  const { config, hasData } = useMemo(() => {
+    const months = YOY_PERIODS.find((p) => p.value === period)?.months ?? [];
+    const monthSet = new Set(months);
+    const byYM = new Map<string, MonthlyPoint>();
+    let maxYear = 0;
+    for (const p of monthly) {
+      const y = Number(p.ym.slice(0, 4));
+      if (y > maxYear) maxYear = y;
+      byYM.set(p.ym, p);
+    }
+    const keepYears = [maxYear - 1, maxYear].filter(
+      (y) => y > 0 && monthly.some((p) => Number(p.ym.slice(0, 4)) === y),
+    );
+    let maxMonth = 0;
+    for (const p of monthly) {
+      const y = Number(p.ym.slice(0, 4));
+      const m = Number(p.ym.slice(5, 7));
+      if (keepYears.includes(y) && monthSet.has(m) && (p.reservations > 0 || p.complaints > 0)) {
+        if (m > maxMonth) maxMonth = m;
+      }
+    }
+    const shownMonths = months.filter((m) => m <= maxMonth);
+    const labels = shownMonths.map((m) => MONTHS_SHORT[m - 1]);
+    const at = (y: number, m: number) => byYM.get(`${y}-${String(m).padStart(2, "0")}`);
+    const rate = (y: number) =>
+      shownMonths.map((m) => {
+        const p = at(y, m);
+        return p && p.reservations > 0 ? round1((p.complaints / p.reservations) * 100) : 0;
+      });
+    const refPct = (y: number) =>
+      shownMonths.map((m) => {
+        const p = at(y, m);
+        return p && p.netRemit > 0 ? round1((Math.abs(p.refund) / p.netRemit) * 100) : 0;
+      });
+    const datasets: Record<string, unknown>[] = [];
+    keepYears
+      .sort((a, b) => a - b)
+      .forEach((y, i) => {
+        const color = YEAR_PALETTE[i % YEAR_PALETTE.length];
+        datasets.push({ type: "bar", label: `Complaint rate ${y}`, data: rate(y), backgroundColor: color, borderColor: color, borderRadius: 4, order: 2 });
+        datasets.push({ type: "line", label: `Refund % of net remit ${y}`, data: refPct(y), borderColor: color, backgroundColor: color, borderDash: [6, 4], tension: 0.3, pointRadius: 3, fill: false, order: 1 });
+      });
+    const cfg = {
+      type: "bar",
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: { padding: { top: 20 } },
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { labels: { color: text, boxWidth: 12, font: { size: 10 } } },
+          tooltip: { callbacks: { label: (c: { dataset: { label?: string }; parsed: { y: number | null } }) => `${c.dataset.label}: ${(c.parsed.y ?? 0).toFixed(2)}%` } },
+        },
+        scales: {
+          x: { ticks: { color: text }, grid: { display: false }, title: { display: true, text: "Month", color: text } },
+          y: { beginAtZero: true, ticks: { color: text, callback: (v: string | number) => `${v}%` }, grid: { color: grid }, title: { display: true, text: "% (rate / refund of net remit)", color: text, font: { size: 11, weight: "bold" } } },
+        },
+      },
+    } as unknown as ChartConfiguration;
+    return { config: cfg, hasData: shownMonths.length > 0 && keepYears.length > 0 };
+  }, [monthly, period, text, grid]);
+
+  const periodLabel = YOY_PERIODS.find((p) => p.value === period)?.label ?? "Full Year";
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md dark:border-slate-800 dark:bg-slate-900">
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+        <h4 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+          <span className="h-4 w-1 rounded-full bg-indigo-500" />
+          Complaint Rate vs Refund % of Net Remit — {periodLabel}
+        </h4>
+        <select value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Month range" className={selectCls}>
+          {YOY_PERIODS.map((p) => (
+            <option key={p.value} value={p.value}>{p.label}</option>
+          ))}
+        </select>
+      </div>
+      <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+        Bars = complaint rate (% of reservations) · dashed lines = refund % of net remit · this year vs last year.
+      </p>
+      {hasData ? (
+        <ChartCanvas config={config} height={400} ariaLabel={`Complaint rate vs refund percent ${periodLabel} chart`} />
+      ) : (
+        <p className="py-12 text-center text-sm text-slate-400">No data for this period.</p>
       )}
     </div>
   );
