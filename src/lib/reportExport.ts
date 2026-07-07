@@ -60,10 +60,6 @@ function badge(level: string): string {
   return `<span class="badge" style="background:${c.bg};color:${c.fg}">${esc(level)}</span>`;
 }
 
-function refundRatePct(f: { refundColumnTotal: number; netRemit: number }): number {
-  return f.netRemit > 0 ? (f.refundColumnTotal / f.netRemit) * 100 : 0;
-}
-
 /** Narrative summary of what the gathered data shows. */
 export function buildSummary(result: ReportResult): string[] {
   const t = result.totals;
@@ -106,62 +102,105 @@ export function buildSummary(result: ReportResult): string[] {
   return lines;
 }
 
-/** Recommended actions derived from the data. */
+/** Latest month with data (prefers the newest uploaded/SpotHero month), plus
+ *  the facilities active that month — the "action required" set that the
+ *  Attention Required charts highlight. */
+function actionRequired(result: ReportResult): {
+  monthLabel: string;
+  facilities: {
+    name: string;
+    state: string;
+    complaints: number;
+    refund: number;
+    lf: number;
+    ia: number;
+  }[];
+} {
+  let maxSpot = "";
+  let maxAny = "";
+  for (const r of result.records) {
+    const ym = (toIsoDate(r.starts) ?? "").slice(0, 7);
+    if (!ym) continue;
+    if (ym > maxAny) maxAny = ym;
+    if (r.source === "spothero" && ym > maxSpot) maxSpot = ym;
+  }
+  const month = maxSpot || maxAny;
+  const m = new Map<
+    string,
+    { name: string; state: string; complaints: number; refund: number; lf: number; ia: number }
+  >();
+  for (const r of result.records) {
+    if ((toIsoDate(r.starts) ?? "").slice(0, 7) !== month) continue;
+    const e =
+      m.get(r.facility) ??
+      { name: r.facility, state: r.state || "", complaints: 0, refund: 0, lf: 0, ia: 0 };
+    e.complaints += 1;
+    e.refund += Math.abs(r.refundAmount);
+    if (r.category === "lot_full") e.lf += 1;
+    else if (r.category === "inaccessibility") e.ia += 1;
+    m.set(r.facility, e);
+  }
+  const monthLabel = month
+    ? `${MONTHS[Number(month.slice(5, 7)) - 1]} ${month.slice(0, 4)}`
+    : "the latest period";
+  return {
+    monthLabel,
+    facilities: [...m.values()].sort((a, b) => b.complaints - a.complaints),
+  };
+}
+
+/** Recommended actions — focused on the latest month's action-required facilities. */
 export function buildActionPlan(result: ReportResult): string[] {
   const cat = result.filterLabel;
+  const { monthLabel, facilities } = actionRequired(result);
+  if (facilities.length === 0)
+    return [
+      `No action-required facilities in ${monthLabel}. Maintain the current monitoring cadence across facilities.`,
+    ];
   const recs: string[] = [];
-  const byScore = [...result.facilities].sort(
-    (a, b) => b.priorityScore - a.priorityScore,
-  );
-  for (const f of byScore.filter((x) => x.priorityLevel === "Critical").slice(0, 5)) {
+  for (const f of facilities.slice(0, 8)) {
+    const type =
+      f.lf && f.ia ? "Lot Full & Inaccessibility" : f.lf >= f.ia ? "Lot Full" : "Inaccessibility";
     recs.push(
-      `<b>Stabilize ${esc(f.facility)} (${esc(f.state)}) — Critical.</b> ${f.incidentCount} ${cat} incidents, priority score ${f.priorityScore.toFixed(1)}. Run an on-site capacity audit, validate live availability counts, and tighten oversell controls within the next reporting cycle.`,
+      `<b>${esc(f.name)}${f.state ? ` (${esc(f.state)})` : ""} — ${f.complaints} ${cat} incident${f.complaints === 1 ? "" : "s"} in ${monthLabel}.</b> ${type} is the primary driver${f.refund > 0 ? `, ${formatCurrency(f.refund)} in refunds` : ""}. Run an on-site capacity/access audit, verify live availability counts, and tighten oversell controls this cycle.`,
     );
   }
-  const highRefund = result.facilities
-    .filter((f) => refundRatePct(f) >= 30)
-    .sort((a, b) => refundRatePct(b) - refundRatePct(a))
+  const highRefund = facilities
+    .filter((f) => f.refund > 0)
+    .sort((a, b) => b.refund - a.refund)
     .slice(0, 5);
   if (highRefund.length)
     recs.push(
-      `<b>Contain refund leakage.</b> Facilities exceeding a 30% refund-to-remit ratio require root-cause review: ${highRefund
-        .map((f) => `${esc(f.facility)} (${refundRatePct(f).toFixed(0)}%)`)
-        .join(", ")}.`,
-    );
-  const topStates = result.states
-    .slice(0, 3)
-    .map((s) => `${esc(s.state)} (${s.incidentCount})`)
-    .join(", ");
-  if (topStates)
-    recs.push(
-      `<b>Regional capacity planning.</b> Concentrate inventory governance in the highest-volume states: ${topStates}.`,
-    );
-  if (result.totals.internalLotFull > 0)
-    recs.push(
-      `<b>Reconcile reporting sources.</b> Cross-check the ${result.totals.internalLotFull} internally-logged ${cat} incidents against SpotHero records to maintain a single source of truth and eliminate double-counting.`,
+      `<b>Contain refund leakage (${monthLabel}).</b> Highest refund exposure this month: ${highRefund
+        .map((f) => `${esc(f.name)} (${formatCurrency(f.refund)})`)
+        .join(", ")} — root-cause each and redirect customers to nearby partner facilities rather than refunding.`,
     );
   recs.push(
-    `<b>Institute weekly monitoring.</b> Track ${cat} counts and refund totals on a per-week basis so emerging hotspots are caught and contained before they escalate.`,
+    `<b>Institute weekly monitoring.</b> Track these ${monthLabel} hotspots week-over-week so emerging issues are contained before they escalate.`,
   );
-  if (recs.length === 0)
-    recs.push(
-      "No critical issues detected. Maintain current monitoring cadence across facilities.",
-    );
   return recs;
 }
 
-/** Broad, preventive measures to avoid or reduce the issues in scope. */
-export function buildPreventionPlan(cat: string): string[] {
-  return [
+/** Preventive measures — targeted at the latest month's action-required facilities. */
+export function buildPreventionPlan(result: ReportResult): string[] {
+  const cat = result.filterLabel;
+  const { monthLabel, facilities } = actionRequired(result);
+  const top = facilities.slice(0, 5).map((f) => esc(f.name)).join(", ");
+  const measures: string[] = [];
+  if (top)
+    measures.push(
+      `<b>Prioritize the ${monthLabel} action-required facilities</b> — ${top} — when applying the measures below.`,
+    );
+  measures.push(
     "<b>Real-time availability sync</b> — keep SpotHero inventory in lock-step with each facility's live capacity so spots can't be sold beyond what's physically available.",
-    "<b>Set sellable-capacity buffers</b> — cap online inventory below 100% at high-incidence facilities to absorb walk-ins, monthly parkers, and miscounts.",
+    "<b>Set sellable-capacity buffers</b> — cap online inventory below 100% at these high-incidence facilities to absorb walk-ins, monthly parkers, and miscounts.",
     "<b>Overbooking alerts</b> — automatically flag and pause sales when a facility approaches capacity for a given arrival window.",
     "<b>Proactive rebooking</b> — when a lot is full or inaccessible, redirect customers to nearby partner facilities to cut refunds and complaints rather than issuing a refund.",
-    `<b>Peak & event planning</b> — adjust inventory and pricing around recurring peak times and local events that historically drive ${cat}.`,
+    `<b>Peak & event planning</b> — adjust inventory and pricing around recurring peak times and local events that drive ${cat} at these sites.`,
     "<b>Monthly capacity audits</b> — reconcile facility capacity and access data with operators and verify counts to eliminate stale or inflated availability.",
-    `<b>Recurring-pattern tracking</b> — monitor the time windows and weekdays where ${cat} repeats per facility, and tighten controls for those slots.`,
-    `<b>Operator accountability</b> — share ${cat} scorecards with facility operators and set reduction targets for the highest-priority sites.`,
-  ];
+    `<b>Operator accountability</b> — share ${cat} scorecards with these operators and set reduction targets for the next reporting period.`,
+  );
+  return measures;
 }
 
 /** A captured chart image (PNG data URL) with its title and on-screen section. */
@@ -227,9 +266,13 @@ export function buildReportHtml(
   charts: ChartImage[] = [],
   dateRange?: DateRange,
   tables: TableSnapshot[] = [],
+  stateFilter?: string,
 ): string {
   const { totals } = result;
   const cat = result.filterLabel; // "All Issues" | "Lot Full" | "Inaccessibility"
+  // State scope shown in the title, e.g. "Lot Full Report (MA)".
+  const stateLabel =
+    stateFilter && stateFilter !== "All" ? ` (${stateFilter})` : " (All States)";
   const complaintRate =
     totals.reservations > 0
       ? (totals.incidentCount / totals.reservations) * 100
@@ -387,7 +430,7 @@ export function buildReportHtml(
 </head>
 <body>
   <div class="head">
-    <h1>${esc(cat)} Report</h1>
+    <h1>${esc(cat)} Report${esc(stateLabel)}</h1>
     <div class="coverage">${esc(dateCoverage(result, dateRange))}</div>
   </div>
 
@@ -439,7 +482,7 @@ export function buildReportHtml(
   ${renderNarrative(buildActionPlan(result), true, "#4f46e5")}
 
   <h2>Preventive Measures — Reducing ${esc(cat)}</h2>
-  ${renderNarrative(buildPreventionPlan(cat), true, "#0d9488")}
+  ${renderNarrative(buildPreventionPlan(result), true, "#0d9488")}
 
   <div class="foot">Generated ${esc(generatedAt)}</div>
 </body>

@@ -441,7 +441,7 @@ export default function GatherOneReport() {
                 </select>
               </Field>
               <div className="flex items-center gap-2 self-end">
-                {merged && <ExportMenu result={result} dateRange={dateRange} />}
+                {merged && <ExportMenu result={result} dateRange={dateRange} stateFilter={stateFilter} />}
                 <button
                   type="button"
                   onClick={handleClear}
@@ -653,7 +653,7 @@ function ReportDashboard({
         title={`Preventive Measures — Reducing ${cat}`}
         subtitle="Broad, proactive measures to prevent recurrence"
       >
-        <NarrativeCard items={buildPreventionPlan(cat)} ordered accent="teal" />
+        <NarrativeCard items={buildPreventionPlan(result)} ordered accent="teal" />
       </Section>
     </div>
   );
@@ -948,9 +948,11 @@ function snapshotTables(): TableSnapshot[] {
 function ExportMenu({
   result,
   dateRange,
+  stateFilter,
 }: {
   result: ReportResult;
   dateRange: DateRange;
+  stateFilter: string;
 }) {
   const [open, setOpen] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
@@ -966,6 +968,7 @@ function ExportMenu({
       snapshotCharts(),
       dateRange,
       snapshotTables(),
+      stateFilter,
     );
   }
 
