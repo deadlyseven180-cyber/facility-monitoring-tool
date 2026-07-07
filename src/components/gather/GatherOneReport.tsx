@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import MultiFileUpload from "@/components/shared/MultiFileUpload";
 import DateRangeFilter from "@/components/shared/DateRangeFilter";
 import FacilityRecordsModal from "@/components/shared/FacilityRecordsModal";
-import { YearComparisonChart } from "./ReportCharts";
+import ReportCharts, { YearComparisonChart } from "./ReportCharts";
 import TopFacilitiesChart from "./TopFacilitiesChart";
 import PriorityBadge from "./PriorityBadge";
 import type { ParsedCsv } from "@/types/data";
@@ -592,6 +592,14 @@ function ReportDashboard({
         subtitle="Complaints per month compared across years (this year vs last year) — internal and SpotHero combined. Honors the category / state filters; uses the full history, not the date range."
       >
         <YearComparisonChart records={sourceYoyRecords} title="Complaints — Internal + SpotHero" />
+      </Section>
+
+      {/* Same, split by source — internal complaints and SpotHero complaints. */}
+      <Section
+        title="Complaints by Month — Internal vs SpotHero"
+        subtitle="Year-over-year (this year vs last year) by month, shown separately for internal complaints and SpotHero complaints."
+      >
+        <ReportCharts records={sourceYoyRecords} />
       </Section>
 
       {/* Facility Summary table — filterable by priority + sortable columns */}

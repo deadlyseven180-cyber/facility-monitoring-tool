@@ -183,3 +183,18 @@ export function YearComparisonChart({
     </div>
   );
 }
+
+/**
+ * Two year-over-year comparisons side by side — internal complaints and SpotHero
+ * complaints, each this year vs last year by month.
+ */
+export default function ReportCharts({ records }: { records: FilteredRecord[] }) {
+  const internal = useMemo(() => records.filter((r) => r.source === "internal"), [records]);
+  const spothero = useMemo(() => records.filter((r) => r.source === "spothero"), [records]);
+  return (
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      <YearComparisonChart records={internal} title="Internal Complaints" />
+      <YearComparisonChart records={spothero} title="SpotHero Complaints" />
+    </div>
+  );
+}
