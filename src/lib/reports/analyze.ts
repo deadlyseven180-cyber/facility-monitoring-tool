@@ -247,13 +247,28 @@ export function analyzeReport(
     (row[cols.facility] ?? "").trim() ||
     UNKNOWN_FACILITY;
 
-  // Canonical grouping key: facilities differing only by case/punctuation/
-  // spacing collapse together (so "… ONLY" and "… Only" merge into one row).
+  // Per-row reporting year (from the Starts date). "" when undated.
+  const rowYear = (row: Record<string, string>): string => {
+    const iso = toIsoDate(row[cols.starts]);
+    return iso ? iso.slice(0, 4) : "";
+  };
+
+  // Canonical grouping key: facility (case/punctuation/spacing-insensitive) +
+  // reporting YEAR, so a facility's 2025 and 2026 complaints stay on separate
+  // summary rows instead of being combined into one.
   const keyOf = (row: Record<string, string>): string => {
     const raw = facilityLabelRaw(row);
     if (raw === UNKNOWN_FACILITY) return "__unknown__";
-    return canonicalFacilityKey(raw) || "__unknown__";
+    const fk = canonicalFacilityKey(raw) || "__unknown__";
+    if (fk === "__unknown__") return "__unknown__";
+    return `${fk}|${rowYear(row)}`;
   };
+
+  // The facility part of a composite key (strips the "|year" suffix).
+  const facilityPart = (k: string): string =>
+    k.includes("|") ? k.slice(0, k.lastIndexOf("|")) : k;
+  const yearPart = (k: string): string =>
+    k.includes("|") ? k.slice(k.lastIndexOf("|") + 1) : "";
 
   // Pick the cleanest display label for each canonical key: the spelling that
   // appears most often (tie-break: longest) across every row in the dataset.
@@ -319,7 +334,8 @@ export function analyzeReport(
   const stateForKey = (k: string): string => {
     const fromData = dataState.get(k);
     if (fromData) return fromData;
-    const exact = normalizeState(snapStates[k]);
+    // The facility→state directory is keyed by facility only, so strip the year.
+    const exact = normalizeState(snapStates[facilityPart(k)]);
     if (exact) return exact;
     const sk = keyToStreet.get(k);
     const street = sk ? normalizeState(snapStates[sk]) : null;
@@ -467,6 +483,8 @@ export function analyzeReport(
     const reservations = reservationsByFacility.get(key) ?? 0;
     facilities.push({
       facility: bestLabel(key),
+      // Reporting year for this row ("" when undated) — keeps 2025/2026 separate.
+      year: yearPart(key),
       state: stateForKey(key),
       incidentCount: g.incidentCount,
       refundTotal: g.refundTotal,

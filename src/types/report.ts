@@ -19,6 +19,8 @@ export interface FilteredRecord {
 /** Per-facility roll-up. */
 export interface FacilitySummary {
   facility: string;
+  /** Reporting year for this row (e.g. "2025"/"2026"); "" when undated. */
+  year: string;
   /** State (MA State / facility-id value) this facility belongs to. */
   state: string;
   /** Count of matching incidents at this facility. */

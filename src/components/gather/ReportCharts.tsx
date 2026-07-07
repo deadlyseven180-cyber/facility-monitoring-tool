@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import type { ChartConfiguration } from "chart.js/auto";
 import ChartCanvas from "@/components/shared/ChartCanvas";
 import { useTheme } from "@/components/theme/ThemeProvider";
+import { formatCurrency } from "@/lib/format";
 import { toIsoDate } from "@/lib/reports/columns";
 import type { FilteredRecord } from "@/types/report";
 
@@ -11,6 +12,10 @@ const MONTHS_SHORT = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
+
+const AMBER = "#f59e0b"; // Internal
+const BLUE = "#3b82f6"; // SpotHero
+const round1 = (n: number) => Math.round(n * 10) / 10;
 
 const selectCls =
   "rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:focus:ring-indigo-500/30";
@@ -31,8 +36,8 @@ const YOY_PERIODS: { value: string; label: string; months: number[] }[] = [
 // One color per year (oldest → newest): gold, navy, then extras.
 const YEAR_PALETTE = ["#c19a3e", "#1e3a5f", "#0d9488", "#a855f7", "#ef4444", "#ec4899"];
 
-/** Draws each bar/point's value just above it. */
-function valueOnBarsPlugin(color: string) {
+/** Draws each bar/point's value just above it (formatted via `fmt`). */
+function valueOnBarsPlugin(color: string, fmt: (n: number) => string = String) {
   return {
     id: "yoyValues",
     afterDatasetsDraw(chart: {
@@ -52,7 +57,7 @@ function valueOnBarsPlugin(color: string) {
         meta.data.forEach((el, i) => {
           const v = ds.data[i] as number | null;
           if (v == null || v === 0) return;
-          ctx.fillText(String(v), el.x, el.y - 2);
+          ctx.fillText(fmt(Number(v)), el.x, el.y - 2);
         });
       });
       ctx.restore();
@@ -179,6 +184,109 @@ export function YearComparisonChart({
         <ChartCanvas config={config} height={400} ariaLabel={`${title} ${periodLabel} chart`} />
       ) : (
         <p className="py-12 text-center text-sm text-slate-400">No dated records for this period.</p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Refund amount by month, Internal vs SpotHero, for the latest data year. Two
+ * series (Internal, SpotHero); bars are the summed refund magnitude per month.
+ */
+export function RefundBySourceChart({ records }: { records: FilteredRecord[] }) {
+  const { theme } = useTheme();
+  const dark = theme === "dark";
+  const text = dark ? "#cbd5e1" : "#475569";
+  const grid = dark ? "rgba(148,163,184,0.16)" : "rgba(148,163,184,0.22)";
+  const [period, setPeriod] = useState("h1");
+  const [type, setType] = useState<"bar" | "line">("bar");
+
+  const { config, hasData, year } = useMemo(() => {
+    const months = YOY_PERIODS.find((p) => p.value === period)?.months ?? [];
+    const monthSet = new Set(months);
+    // Refunds for the latest data year (avoids mixing 2025 + 2026 in one bar).
+    let maxYear = 0;
+    for (const r of records) {
+      const iso = toIsoDate(r.starts);
+      if (iso) {
+        const y = Number(iso.slice(0, 4));
+        if (y > maxYear) maxYear = y;
+      }
+    }
+    const internal = new Map<number, number>();
+    const spothero = new Map<number, number>();
+    for (const r of records) {
+      const iso = toIsoDate(r.starts);
+      if (!iso) continue;
+      const [y, m] = iso.split("-").map(Number);
+      if (y !== maxYear || !monthSet.has(m)) continue;
+      const amt = Math.abs(r.refundAmount);
+      if (!amt) continue;
+      const bucket = r.source === "internal" ? internal : spothero;
+      bucket.set(m, (bucket.get(m) ?? 0) + amt);
+    }
+    let maxMonth = 0;
+    for (const m of [...internal.keys(), ...spothero.keys()]) if (m > maxMonth) maxMonth = m;
+    const shownMonths = months.filter((m) => m <= maxMonth);
+    const labels = shownMonths.map((m) => MONTHS_SHORT[m - 1]);
+    const mk = (label: string, map: Map<number, number>, color: string) => ({
+      label,
+      data: shownMonths.map((m) => round1(map.get(m) ?? 0)),
+      backgroundColor: color,
+      borderColor: color,
+      borderRadius: type === "bar" ? 4 : 0,
+      tension: 0.3,
+      fill: false,
+      pointRadius: 3,
+    });
+    const datasets = [mk("Internal", internal, AMBER), mk("SpotHero", spothero, BLUE)];
+    const cfg = {
+      type,
+      plugins: [valueOnBarsPlugin(text, formatCurrency)],
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: { padding: { top: 20 } },
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { labels: { color: text, boxWidth: 12 } },
+          tooltip: { callbacks: { label: (c: { dataset: { label?: string }; parsed: { y: number | null } }) => `${c.dataset.label}: ${formatCurrency(c.parsed.y ?? 0)}` } },
+        },
+        scales: {
+          x: { ticks: { color: text }, grid: { display: false }, title: { display: true, text: "Month", color: text } },
+          y: { beginAtZero: true, ticks: { color: text, callback: (v: string | number) => formatCurrency(Number(v)) }, grid: { color: grid }, title: { display: true, text: "Refunds", color: text, font: { size: 11, weight: "bold" } } },
+        },
+      },
+    } as unknown as ChartConfiguration;
+    return { config: cfg, hasData: shownMonths.length > 0, year: maxYear ? String(maxYear) : "" };
+  }, [records, period, type, text, grid]);
+
+  const periodLabel = YOY_PERIODS.find((p) => p.value === period)?.label ?? "Full Year";
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md dark:border-slate-800 dark:bg-slate-900">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h4 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+          <span className="h-4 w-1 rounded-full bg-indigo-500" />
+          Refunds — Internal vs SpotHero{year ? ` · ${year}` : ""} — {periodLabel}
+        </h4>
+        <div className="flex items-center gap-2">
+          <select value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Month range" className={selectCls}>
+            {YOY_PERIODS.map((p) => (
+              <option key={p.value} value={p.value}>{p.label}</option>
+            ))}
+          </select>
+          <select value={type} onChange={(e) => setType(e.target.value as "bar" | "line")} aria-label="Chart type" className={selectCls}>
+            <option value="bar">Bar</option>
+            <option value="line">Line</option>
+          </select>
+        </div>
+      </div>
+      {hasData ? (
+        <ChartCanvas config={config} height={360} ariaLabel={`Refunds internal vs SpotHero ${periodLabel} chart`} />
+      ) : (
+        <p className="py-12 text-center text-sm text-slate-400">No refunds for this period.</p>
       )}
     </div>
   );

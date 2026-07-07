@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import MultiFileUpload from "@/components/shared/MultiFileUpload";
 import DateRangeFilter from "@/components/shared/DateRangeFilter";
 import FacilityRecordsModal from "@/components/shared/FacilityRecordsModal";
-import ReportCharts, { YearComparisonChart } from "./ReportCharts";
+import ReportCharts, { YearComparisonChart, RefundBySourceChart } from "./ReportCharts";
 import TopFacilitiesChart from "./TopFacilitiesChart";
 import PriorityBadge from "./PriorityBadge";
 import type { ParsedCsv } from "@/types/data";
@@ -479,17 +479,20 @@ function ReportDashboard({
   const cat = result.filterLabel; // "All Issues" | "Lot Full" | "Inaccessibility"
 
   // Which issue categories each facility's complaints fall under.
+  // Keyed by `${facility}|${year}` so each facility-year row shows its own type.
   const typeByFacility = useMemo(() => {
     const seen = new Map<string, { lf: boolean; ia: boolean }>();
     for (const r of result.records) {
-      const e = seen.get(r.facility) ?? { lf: false, ia: false };
+      const y = (toIsoDate(r.starts) ?? "").slice(0, 4);
+      const k = `${r.facility}|${y}`;
+      const e = seen.get(k) ?? { lf: false, ia: false };
       if (r.category === "lot_full") e.lf = true;
       else if (r.category === "inaccessibility") e.ia = true;
-      seen.set(r.facility, e);
+      seen.set(k, e);
     }
     const out = new Map<string, string>();
-    for (const [f, { lf, ia }] of seen) {
-      out.set(f, lf && ia ? "Both" : lf ? "Lot Full" : ia ? "Inaccessibility" : "—");
+    for (const [k, { lf, ia }] of seen) {
+      out.set(k, lf && ia ? "Both" : lf ? "Lot Full" : ia ? "Inaccessibility" : "—");
     }
     return out;
   }, [result]);
@@ -594,12 +597,16 @@ function ReportDashboard({
         <YearComparisonChart records={sourceYoyRecords} title="Complaints — Internal + SpotHero" />
       </Section>
 
-      {/* Same, split by source — internal complaints and SpotHero complaints. */}
+      {/* Same, split by source — internal complaints and SpotHero complaints,
+          plus a refund-amount comparison below. */}
       <Section
         title="Complaints by Month — Internal vs SpotHero"
-        subtitle="Year-over-year (this year vs last year) by month, shown separately for internal complaints and SpotHero complaints."
+        subtitle="Year-over-year (this year vs last year) by month, shown separately for internal and SpotHero complaints — with refund amounts compared below."
       >
-        <ReportCharts records={sourceYoyRecords} />
+        <div className="space-y-4">
+          <ReportCharts records={sourceYoyRecords} />
+          <RefundBySourceChart records={sourceYoyRecords} />
+        </div>
       </Section>
 
       {/* Facility Summary table — filterable by priority + sortable columns */}
@@ -757,6 +764,7 @@ function FacilitySummaryTable({
               <FTh>#</FTh>
               <FTh>Priority</FTh>
               <FTh>State</FTh>
+              <FTh>Year</FTh>
               <FTh>Facility</FTh>
               <FTh>Type</FTh>
               <SortTh label="Complaints" k="incidentCount" />
@@ -770,10 +778,10 @@ function FacilitySummaryTable({
           <tbody>
             {rows.map((f, i) => {
               const refundRate = facilityRefundRate(f);
-              const type = typeByFacility.get(f.facility) ?? "—";
+              const type = typeByFacility.get(`${f.facility}|${f.year}`) ?? "—";
               return (
                 <tr
-                  key={f.facility}
+                  key={`${f.facility}|${f.year}`}
                   className="border-b border-slate-100 last:border-0 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50"
                 >
                   <FTd className="text-slate-400 dark:text-slate-500">
@@ -784,6 +792,9 @@ function FacilitySummaryTable({
                   </FTd>
                   <FTd className="font-medium text-slate-600 dark:text-slate-300">
                     {f.state}
+                  </FTd>
+                  <FTd className="font-semibold text-slate-700 dark:text-slate-200">
+                    {f.year || "—"}
                   </FTd>
                   <FTd
                     className="max-w-[200px] truncate"
@@ -830,7 +841,7 @@ function FacilitySummaryTable({
             {rows.length === 0 && (
               <tr>
                 <td
-                  colSpan={11}
+                  colSpan={12}
                   className="px-3 py-6 text-center text-slate-400 dark:text-slate-500"
                 >
                   No facilities match this priority.
