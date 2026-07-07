@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import MultiFileUpload from "@/components/shared/MultiFileUpload";
 import DateRangeFilter from "@/components/shared/DateRangeFilter";
 import FacilityRecordsModal from "@/components/shared/FacilityRecordsModal";
-import ReportCharts, { YearComparisonChart } from "./ReportCharts";
+import { YearComparisonChart } from "./ReportCharts";
 import TopFacilitiesChart from "./TopFacilitiesChart";
 import PriorityBadge from "./PriorityBadge";
 import type { ParsedCsv } from "@/types/data";
@@ -206,25 +206,9 @@ export default function GatherOneReport() {
     }
   }, [scopedMerged, analyzed, stateFilter, dateRange, category, facilityStates]);
 
-  // Same analysis WITHOUT the date-range scope — the Year-over-Year chart needs
-  // every year of history, not just the selected range. Still honors the
-  // category / state / source filters.
-  const resultAllDates = useMemo<ReportResult | null>(() => {
-    if (!scopedMerged || !analyzed) return null;
-    try {
-      return analyzeReport(scopedMerged, filterForCategory(category), {
-        columns: MERGED_COLUMNS,
-        stateFilter,
-        facilityStates,
-      });
-    } catch {
-      return null;
-    }
-  }, [scopedMerged, analyzed, stateFilter, category, facilityStates]);
-
   // All sources + all dates (category/state filtered, source-INdependent) — for
-  // the side-by-side Internal vs SpotHero year-over-year charts, which always
-  // show both regardless of the Source dropdown.
+  // the Year-over-Year chart, which always combines internal + SpotHero and
+  // uses the full history regardless of the Source dropdown / date range.
   const resultAllSources = useMemo<ReportResult | null>(() => {
     if (!merged || !analyzed) return null;
     try {
@@ -475,7 +459,6 @@ export default function GatherOneReport() {
       {analyzed && result && (
         <ReportDashboard
           result={result}
-          yoyRecords={(resultAllDates ?? result).records}
           sourceYoyRecords={(resultAllSources ?? result).records}
         />
       )}
@@ -487,11 +470,9 @@ export default function GatherOneReport() {
 
 function ReportDashboard({
   result,
-  yoyRecords,
   sourceYoyRecords,
 }: {
   result: ReportResult;
-  yoyRecords: FilteredRecord[];
   sourceYoyRecords: FilteredRecord[];
 }) {
   const { totals, warnings } = result;
@@ -605,21 +586,12 @@ function ReportDashboard({
         );
       })()}
 
-      {/* Year-over-Year comparison — same period across years (respects the
-          category / state / source filters, but not the date range). */}
+      {/* Year-over-Year comparison — internal + SpotHero combined, by month. */}
       <Section
         title="Year-over-Year Comparison"
-        subtitle="Complaints per month compared across years (e.g. 2025 vs 2026) — one bar per year for each month. Reflects the category / source / state filters; uses the full history, not the date range."
+        subtitle="Complaints per month compared across years (this year vs last year) — internal and SpotHero combined. Honors the category / state filters; uses the full history, not the date range."
       >
-        <YearComparisonChart records={yoyRecords} />
-      </Section>
-
-      {/* Complaints by month, year-over-year — internal vs SpotHero, side by side. */}
-      <Section
-        title="Complaints by Month — Internal vs SpotHero"
-        subtitle="Year-over-year (this year vs last year) by month — internal complaints and SpotHero complaints shown separately."
-      >
-        <ReportCharts records={sourceYoyRecords} />
+        <YearComparisonChart records={sourceYoyRecords} title="Complaints — Internal + SpotHero" />
       </Section>
 
       {/* Facility Summary table — filterable by priority + sortable columns */}
@@ -1166,29 +1138,32 @@ function NarrativeCard({
   ordered?: boolean;
   accent?: "indigo" | "teal" | "slate";
 }) {
-  const marker =
+  const badge =
+    accent === "indigo" ? "bg-indigo-600" : accent === "teal" ? "bg-teal-600" : "bg-slate-500";
+  const bar =
     accent === "indigo"
-      ? "marker:text-indigo-500"
+      ? "border-l-indigo-500"
       : accent === "teal"
-        ? "marker:text-teal-500"
-        : "marker:text-slate-400";
-  const itemCls =
-    "pl-1.5 text-sm leading-relaxed text-slate-600 dark:text-slate-300 [&_b]:font-semibold [&_b]:text-slate-900 dark:[&_b]:text-slate-100";
+        ? "border-l-teal-500"
+        : "border-l-slate-400";
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-      {ordered ? (
-        <ol className={`list-decimal space-y-3.5 pl-5 marker:font-bold ${marker}`}>
-          {items.map((s, i) => (
-            <li key={i} className={itemCls} dangerouslySetInnerHTML={{ __html: s }} />
-          ))}
-        </ol>
-      ) : (
-        <ul className={`list-disc space-y-3 pl-5 ${marker}`}>
-          {items.map((s, i) => (
-            <li key={i} className={itemCls} dangerouslySetInnerHTML={{ __html: s }} />
-          ))}
-        </ul>
-      )}
+    <div className="space-y-3">
+      {items.map((s, i) => (
+        <div
+          key={i}
+          className={`flex items-start gap-3.5 rounded-xl border border-l-4 border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md dark:border-slate-800 dark:bg-slate-900 ${bar}`}
+        >
+          <span
+            className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${badge}`}
+          >
+            {ordered ? i + 1 : "•"}
+          </span>
+          <p
+            className="text-sm leading-relaxed text-slate-700 dark:text-slate-200 [&_b]:font-semibold [&_b]:text-slate-900 dark:[&_b]:text-white"
+            dangerouslySetInnerHTML={{ __html: s }}
+          />
+        </div>
+      ))}
     </div>
   );
 }

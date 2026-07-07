@@ -183,18 +183,3 @@ export function YearComparisonChart({
     </div>
   );
 }
-
-/**
- * The report's Charts section: two year-over-year comparisons side by side —
- * internal complaints vs SpotHero complaints, each 2025 vs 2026 by month.
- */
-export default function ReportCharts({ records }: { records: FilteredRecord[] }) {
-  const internal = useMemo(() => records.filter((r) => r.source === "internal"), [records]);
-  const spothero = useMemo(() => records.filter((r) => r.source === "spothero"), [records]);
-  return (
-    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-      <YearComparisonChart records={internal} title="Internal Complaints" />
-      <YearComparisonChart records={spothero} title="SpotHero Complaints" />
-    </div>
-  );
-}

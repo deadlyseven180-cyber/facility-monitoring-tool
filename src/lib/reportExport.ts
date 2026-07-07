@@ -210,6 +210,16 @@ function renderTable(t: TableSnapshot): string {
   </table></div>`;
 }
 
+/** Render a narrative list (summary / actions) as highlighted, numbered rows. */
+function renderNarrative(items: string[], numbered: boolean, accent: string): string {
+  return `<div class="narr">${items
+    .map(
+      (s, i) =>
+        `<div class="narr-item" style="border-left-color:${accent}"><span class="narr-badge" style="background:${accent}">${numbered ? i + 1 : "•"}</span><div class="narr-text">${s}</div></div>`,
+    )
+    .join("")}</div>`;
+}
+
 /** Build a self-contained, light-themed executive report (HTML / print → PDF). */
 export function buildReportHtml(
   result: ReportResult,
@@ -354,21 +364,23 @@ export function buildReportHtml(
   }
   .chart figcaption { font-size: 14px; font-weight: 700; color: #4338ca; margin-bottom: 10px; }
   .chart img { width: 100%; height: auto; display: block; border-radius: 8px; }
-  .narrative {
-    background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px;
-    padding: 6px 22px; margin-bottom: 8px; box-shadow: 0 1px 2px rgba(15,23,42,.04);
+  .narr { display: flex; flex-direction: column; gap: 10px; }
+  .narr-item {
+    display: flex; gap: 12px; align-items: flex-start;
+    background: #ffffff; border: 1px solid #e2e8f0; border-left: 4px solid #4f46e5;
+    border-radius: 12px; padding: 12px 16px; box-shadow: 0 1px 2px rgba(15,23,42,.05);
   }
-  .narrative li { margin: 10px 0; color: #334155; font-size: 13.5px; line-height: 1.55; }
-  .narrative b, .actions b { color: #0f172a; }
-  .actions {
-    background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px;
-    padding: 6px 22px; box-shadow: 0 1px 2px rgba(15,23,42,.04);
+  .narr-badge {
+    flex: 0 0 auto; width: 22px; height: 22px; border-radius: 999px;
+    color: #ffffff; font-size: 12px; font-weight: 700; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
   }
-  .actions li { margin: 10px 0; color: #334155; font-size: 13.5px; line-height: 1.55; }
+  .narr-text { color: #334155; font-size: 13.5px; line-height: 1.55; }
+  .narr-text b { color: #0f172a; font-weight: 700; }
   .foot { margin-top: 28px; color: #94a3b8; font-size: 11px; }
   @media print {
     body { padding: 16px; background: #ffffff; }
-    .chart, tr, .kpi, .narrative, .actions { break-inside: avoid; }
+    .chart, tr, .kpi, .narr-item { break-inside: avoid; }
     .kpis { grid-template-columns: repeat(4, 1fr); }
   }
 </style>
@@ -379,7 +391,7 @@ export function buildReportHtml(
     <div class="coverage">${esc(dateCoverage(result, dateRange))}</div>
   </div>
 
-  <h2>Executive Summary</h2>
+  <h2>Key Metrics</h2>
   <div class="kpis">
     ${kpiCard(
       `${cat} Incidents`,
@@ -416,30 +428,18 @@ export function buildReportHtml(
       : ""
   }
 
-  <h2>Summary</h2>
-  <div class="narrative">
-    <ul>${buildSummary(result)
-      .map((s) => `<li>${s}</li>`)
-      .join("")}</ul>
-  </div>
+  <h2>Executive Summary</h2>
+  ${renderNarrative(buildSummary(result), false, "#6366f1")}
 
   ${chartsHtml}
 
   ${tablesHtml}
 
   <h2>Recommended Action Plan</h2>
-  <div class="actions">
-    <ol>${buildActionPlan(result)
-      .map((s) => `<li>${s}</li>`)
-      .join("")}</ol>
-  </div>
+  ${renderNarrative(buildActionPlan(result), true, "#4f46e5")}
 
   <h2>Preventive Measures — Reducing ${esc(cat)}</h2>
-  <div class="actions">
-    <ol>${buildPreventionPlan(cat)
-      .map((s) => `<li>${s}</li>`)
-      .join("")}</ol>
-  </div>
+  ${renderNarrative(buildPreventionPlan(cat), true, "#0d9488")}
 
   <div class="foot">Generated ${esc(generatedAt)}</div>
 </body>
