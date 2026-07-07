@@ -222,6 +222,22 @@ export default function GatherOneReport() {
     }
   }, [scopedMerged, analyzed, stateFilter, category, facilityStates]);
 
+  // All sources + all dates (category/state filtered, source-INdependent) — for
+  // the side-by-side Internal vs SpotHero year-over-year charts, which always
+  // show both regardless of the Source dropdown.
+  const resultAllSources = useMemo<ReportResult | null>(() => {
+    if (!merged || !analyzed) return null;
+    try {
+      return analyzeReport(merged, filterForCategory(category), {
+        columns: MERGED_COLUMNS,
+        stateFilter,
+        facilityStates,
+      });
+    } catch {
+      return null;
+    }
+  }, [merged, analyzed, stateFilter, category, facilityStates]);
+
   function reset() {
     setAnalyzed(false);
     setStateFilter("All");
@@ -457,7 +473,11 @@ export default function GatherOneReport() {
       )}
 
       {analyzed && result && (
-        <ReportDashboard result={result} yoyRecords={(resultAllDates ?? result).records} />
+        <ReportDashboard
+          result={result}
+          yoyRecords={(resultAllDates ?? result).records}
+          sourceYoyRecords={(resultAllSources ?? result).records}
+        />
       )}
     </div>
   );
@@ -468,9 +488,11 @@ export default function GatherOneReport() {
 function ReportDashboard({
   result,
   yoyRecords,
+  sourceYoyRecords,
 }: {
   result: ReportResult;
   yoyRecords: FilteredRecord[];
+  sourceYoyRecords: FilteredRecord[];
 }) {
   const { totals, warnings } = result;
   const cat = result.filterLabel; // "All Issues" | "Lot Full" | "Inaccessibility"
@@ -592,9 +614,12 @@ function ReportDashboard({
         <YearComparisonChart records={yoyRecords} />
       </Section>
 
-      {/* Charts */}
-      <Section title="Charts" subtitle={`Visual breakdown of ${cat} impact`}>
-        <ReportCharts result={result} />
+      {/* Complaints by month, year-over-year — internal vs SpotHero, side by side. */}
+      <Section
+        title="Complaints by Month — Internal vs SpotHero"
+        subtitle="Year-over-year (this year vs last year) by month — internal complaints and SpotHero complaints shown separately."
+      >
+        <ReportCharts records={sourceYoyRecords} />
       </Section>
 
       {/* Facility Summary table — filterable by priority + sortable columns */}
