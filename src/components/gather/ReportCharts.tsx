@@ -427,13 +427,25 @@ export function YearComparisonChart({ records }: { records: FilteredRecord[] }) 
   const { config, hasData } = useMemo(() => {
     const months = YOY_PERIODS.find((p) => p.value === period)?.months ?? [];
     const monthSet = new Set(months);
+    // Compare only the two most recent years in the data (this year vs last
+    // year), excluding any stray older years. Derived from the data — not the
+    // server clock — so it's correct regardless of where it runs.
+    let maxYear = 0;
+    for (const r of records) {
+      const iso = toIsoDate(r.starts);
+      if (iso) {
+        const y = Number(iso.slice(0, 4));
+        if (y > maxYear) maxYear = y;
+      }
+    }
+    const keepYears = new Set([maxYear - 1, maxYear]);
     const years = new Set<number>();
     const counts = new Map<string, number>(); // `${year}-${month}` → count
     for (const r of records) {
       const iso = toIsoDate(r.starts);
       if (!iso) continue;
       const [y, m] = iso.split("-").map(Number);
-      if (!monthSet.has(m)) continue;
+      if (!keepYears.has(y) || !monthSet.has(m)) continue;
       years.add(y);
       const k = `${y}-${m}`;
       counts.set(k, (counts.get(k) ?? 0) + 1);
