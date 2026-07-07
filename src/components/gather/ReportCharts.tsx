@@ -78,7 +78,8 @@ export function YearComparisonChart({
   const dark = theme === "dark";
   const text = dark ? "#cbd5e1" : "#475569";
   const grid = dark ? "rgba(148,163,184,0.16)" : "rgba(148,163,184,0.22)";
-  const [period, setPeriod] = useState("full");
+  // Default to Jan–Jun (H1) — the comparable period both years share.
+  const [period, setPeriod] = useState("h1");
   const [type, setType] = useState<"bar" | "line">("bar");
 
   const { config, hasData } = useMemo(() => {
