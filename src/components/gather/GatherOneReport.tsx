@@ -605,17 +605,28 @@ function ReportDashboard({
         <YearComparisonChart records={sourceYoyRecords} title="Complaints — Internal + SpotHero" />
       </Section>
 
-      {/* Same, split by source — internal complaints and SpotHero complaints,
-          plus a refund-amount comparison below. */}
+      {/* Split by source — internal complaints and SpotHero complaints. */}
       <Section
         title="Complaints by Month — Internal vs SpotHero"
-        subtitle="Year-over-year (this year vs last year) by month, shown separately for internal and SpotHero complaints — with refund amounts compared below."
+        subtitle="Year-over-year (this year vs last year) by month, shown separately for internal and SpotHero complaints."
       >
-        <div className="space-y-4">
-          <ReportCharts records={sourceYoyRecords} />
-          <RefundBySourceChart records={sourceYoyRecords} />
-          <RateVsRefundChart monthly={sourceYoyMonthly} />
-        </div>
+        <ReportCharts records={sourceYoyRecords} />
+      </Section>
+
+      {/* Own section so it renders full-width in the exported report. */}
+      <Section
+        title="Refunds — Internal vs SpotHero"
+        subtitle="Refund amount by month — internal vs SpotHero — for the latest data year."
+      >
+        <RefundBySourceChart records={sourceYoyRecords} />
+      </Section>
+
+      {/* Own section so it renders full-width in the exported report. */}
+      <Section
+        title="Complaint Rate vs Refund % of Net Remit"
+        subtitle="Bars = complaint rate (% of reservations) · dashed lines = refund % of net remit · this year vs last year."
+      >
+        <RateVsRefundChart monthly={sourceYoyMonthly} />
       </Section>
 
       {/* Facility Summary table — filterable by priority + sortable columns */}
