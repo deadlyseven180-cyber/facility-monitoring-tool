@@ -284,7 +284,7 @@ export function RefundBySourceChart({ records }: { records: FilteredRecord[] }) 
         </div>
       </div>
       {hasData ? (
-        <ChartCanvas config={config} height={360} ariaLabel={`Refunds internal vs SpotHero ${periodLabel} chart`} />
+        <ChartCanvas config={config} height={400} ariaLabel={`Refunds internal vs SpotHero ${periodLabel} chart`} />
       ) : (
         <p className="py-12 text-center text-sm text-slate-400">No refunds for this period.</p>
       )}
