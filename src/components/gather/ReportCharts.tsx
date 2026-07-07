@@ -450,13 +450,22 @@ export function YearComparisonChart({ records }: { records: FilteredRecord[] }) 
       const k = `${y}-${m}`;
       counts.set(k, (counts.get(k) ?? 0) + 1);
     }
+    // Only render months up to the latest one that has data — future/empty
+    // months (e.g. Aug–Dec mid-year) are hidden and appear automatically once
+    // they have records.
+    let maxMonth = 0;
+    for (const k of counts.keys()) {
+      const m = Number(k.split("-")[1]);
+      if (m > maxMonth) maxMonth = m;
+    }
+    const shownMonths = months.filter((m) => m <= maxMonth);
     const yearList = [...years].sort((a, b) => a - b);
-    const labels = months.map((m) => MONTHS_SHORT[m - 1]);
+    const labels = shownMonths.map((m) => MONTHS_SHORT[m - 1]);
     const datasets = yearList.map((y, i) => {
       const color = YEAR_PALETTE[i % YEAR_PALETTE.length];
       return {
         label: String(y),
-        data: months.map((m) => counts.get(`${y}-${m}`) ?? 0),
+        data: shownMonths.map((m) => counts.get(`${y}-${m}`) ?? 0),
         backgroundColor: color,
         borderColor: color,
         borderRadius: type === "bar" ? 4 : 0,
