@@ -193,7 +193,7 @@ export function YearComparisonChart({
  * Refund amount by month, Internal vs SpotHero, for the latest data year. Two
  * series (Internal, SpotHero); bars are the summed refund magnitude per month.
  */
-export function RefundBySourceChart({ records }: { records: FilteredRecord[] }) {
+export function RefundBySourceChart({ records, state }: { records: FilteredRecord[]; state?: string }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const text = dark ? "#cbd5e1" : "#475569";
@@ -269,7 +269,7 @@ export function RefundBySourceChart({ records }: { records: FilteredRecord[] }) 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h4 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
           <span className="h-4 w-1 rounded-full bg-indigo-500" />
-          Refunds — Internal vs SpotHero{year ? ` · ${year}` : ""} — {periodLabel}
+          Refunds — Internal vs SpotHero{state ? ` · ${state}` : ""}{year ? ` · ${year}` : ""} — {periodLabel}
         </h4>
         <div className="flex items-center gap-2">
           <select value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Month range" className={selectCls}>
@@ -297,7 +297,7 @@ export function RefundBySourceChart({ records }: { records: FilteredRecord[] }) 
  * Bars = complaint rate per year; dashed lines = refund % of net remit per year
  * (this year vs last year), by month.
  */
-export function RateVsRefundChart({ monthly }: { monthly: MonthlyPoint[] }) {
+export function RateVsRefundChart({ monthly, state }: { monthly: MonthlyPoint[]; state?: string }) {
   const { theme } = useTheme();
   const dark = theme === "dark";
   const text = dark ? "#cbd5e1" : "#475569";
@@ -375,7 +375,7 @@ export function RateVsRefundChart({ monthly }: { monthly: MonthlyPoint[] }) {
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
         <h4 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
           <span className="h-4 w-1 rounded-full bg-indigo-500" />
-          Complaint Rate vs Refund % of Net Remit — {periodLabel}
+          Complaint Rate vs Refund % of Net Remit{state ? ` · ${state}` : ""} — {periodLabel}
         </h4>
         <select value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Month range" className={selectCls}>
           {YOY_PERIODS.map((p) => (
@@ -399,13 +399,14 @@ export function RateVsRefundChart({ monthly }: { monthly: MonthlyPoint[] }) {
  * Two year-over-year comparisons side by side — internal complaints and SpotHero
  * complaints, each this year vs last year by month.
  */
-export default function ReportCharts({ records }: { records: FilteredRecord[] }) {
+export default function ReportCharts({ records, state }: { records: FilteredRecord[]; state?: string }) {
   const internal = useMemo(() => records.filter((r) => r.source === "internal"), [records]);
   const spothero = useMemo(() => records.filter((r) => r.source === "spothero"), [records]);
+  const sfx = state ? ` — ${state}` : "";
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-      <YearComparisonChart records={internal} title="Internal Complaints" />
-      <YearComparisonChart records={spothero} title="SpotHero Complaints" />
+      <YearComparisonChart records={internal} title={`Internal Complaints${sfx}`} />
+      <YearComparisonChart records={spothero} title={`SpotHero Complaints${sfx}`} />
     </div>
   );
 }

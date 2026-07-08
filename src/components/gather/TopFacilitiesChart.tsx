@@ -53,12 +53,13 @@ const selectCls =
  */
 export default function TopFacilitiesChart({
   result,
-  category,
+  state,
   limit = 5,
   month = "",
 }: {
   result: ReportResult;
-  category: "lot_full" | "inaccessibility";
+  /** State to scope to (e.g. "MA"); "" = all states. */
+  state: string;
   limit?: number;
   /** Scope to this month (YYYY-MM); "" = all records. Controlled by the parent. */
   month?: string;
@@ -69,13 +70,13 @@ export default function TopFacilitiesChart({
   const grid = dark ? "rgba(148,163,184,0.16)" : "rgba(148,163,184,0.22)";
 
   const [view, setView] = useState<View>("facility");
-  const catLabel = category === "lot_full" ? "Lot Full" : "Inaccessibility";
+  const catLabel = state || "All States";
 
-  // Records for this category, scoped to the selected month (from the parent's
-  // Attention Required month picker).
+  // Records for this state (the category filter is already applied upstream),
+  // scoped to the selected month (from the parent's Attention Required picker).
   const catRecords = useMemo(
-    () => result.records.filter((r) => r.category === category),
-    [result, category],
+    () => (state ? result.records.filter((r) => r.state === state) : result.records),
+    [result, state],
   );
   const records = useMemo(() => {
     if (!month) return catRecords;

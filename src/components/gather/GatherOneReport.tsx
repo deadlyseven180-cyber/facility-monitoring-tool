@@ -89,6 +89,8 @@ const MONTHS_ABBR = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
+/** Primary markets the per-state charts cover. */
+const MARKETS = ["MA", "IL", "DC"];
 /** "2026-06" → "Jun 2026". */
 function fmtYm(ym: string): string {
   return ym ? `${MONTHS_ABBR[Number(ym.slice(5, 7)) - 1]} ${ym.slice(0, 4)}` : "";
@@ -487,6 +489,40 @@ function ReportDashboard({
   const internalRefund = totals.refundTotal - totals.catRefundColumnTotal;
   const stateLabel = stateFilter === "All" ? "All States" : stateFilter;
 
+  // States to render one chart each for: the selected state, or every MA/IL/DC
+  // market present in the data (so uploading IL + MA → a chart per state, and
+  // filtering to one state hides the others). "" = all states in a single chart.
+  const attnStates = useMemo(() => {
+    if (stateFilter !== "All") return [stateFilter];
+    const recs = attnMonth
+      ? result.records.filter((r) => (toIsoDate(r.starts) ?? "").slice(0, 7) === attnMonth)
+      : result.records;
+    const present = new Set(recs.map((r) => r.state));
+    const m = MARKETS.filter((s) => present.has(s));
+    return m.length ? m : [""];
+  }, [stateFilter, result, attnMonth]);
+  const yoyStates = useMemo(() => {
+    if (stateFilter !== "All") return [stateFilter];
+    const present = new Set(sourceYoyRecords.map((r) => r.state));
+    const m = MARKETS.filter((s) => present.has(s));
+    return m.length ? m : [""];
+  }, [stateFilter, sourceYoyRecords]);
+  // Per-state monthly series (from the all-states detail) for the rate chart.
+  const monthlyForState = (st: string): MonthlyPoint[] =>
+    !st
+      ? sourceYoyMonthly
+      : sourceDetail
+          .filter((d) => d.state === st)
+          .map((d) => ({
+            ym: d.ym,
+            reservations: d.reservations,
+            netRemit: d.netRemit,
+            refund: d.refund,
+            complaints: d.spotHeroComplaints + d.internalComplaints,
+          }));
+  const recsForState = (st: string) =>
+    st ? sourceYoyRecords.filter((r) => r.state === st) : sourceYoyRecords;
+
   return (
     <div className="space-y-6">
       {warnings.length > 0 && (
@@ -558,77 +594,86 @@ function ReportDashboard({
         </p>
       )}
 
-      {/* Attention Required — top 5 facilities by complaints, per category.
-          When the report is filtered to one category, the other category's
-          chart has no data, so it is hidden automatically. */}
-      {(() => {
-        const showLF = cat !== "Inaccessibility";
-        const showIA = cat !== "Lot Full";
-        const both = showLF && showIA;
-        return (
-          <Section
-            title="Attention Required"
-            subtitle={`Top 5 facilities by complaints for the selected month${both ? "" : showLF ? " · Lot Full" : " · Inaccessibility"} — the Action Plan & Preventive Measures below follow this month.`}
-          >
-            {attnMonths.length > 0 && (
-              <div className="mb-3 flex flex-wrap items-center gap-2">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                  Month
-                </span>
-                <select
-                  value={attnMonth}
-                  onChange={(e) => onAttnMonth(e.target.value)}
-                  aria-label="Attention Required month"
-                  className={filterSelectCls}
-                >
-                  {attnMonths.map((m) => (
-                    <option key={m} value={m}>{fmtYm(m)}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-            <div className={`grid grid-cols-1 gap-4 ${both ? "xl:grid-cols-2" : ""}`}>
-              {showLF && (
-                <TopFacilitiesChart result={result} category="lot_full" limit={5} month={attnMonth} />
-              )}
-              {showIA && (
-                <TopFacilitiesChart result={result} category="inaccessibility" limit={5} month={attnMonth} />
-              )}
-            </div>
-          </Section>
-        );
-      })()}
+      {/* Attention Required — one Top-5 chart per state (MA/IL/DC present, or
+          the selected state) for the picked month. */}
+      <Section
+        title="Attention Required"
+        subtitle="Top 5 facilities by complaints per state for the selected month — the Action Plan & Preventive Measures (in the download) follow this month. Filter to one State to focus on it."
+      >
+        {attnMonths.length > 0 && (
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              Month
+            </span>
+            <select
+              value={attnMonth}
+              onChange={(e) => onAttnMonth(e.target.value)}
+              aria-label="Attention Required month"
+              className={filterSelectCls}
+            >
+              {attnMonths.map((m) => (
+                <option key={m} value={m}>{fmtYm(m)}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        <div className={`grid grid-cols-1 gap-4 ${attnStates.length > 1 ? "xl:grid-cols-2" : ""}`}>
+          {attnStates.map((st) => (
+            <TopFacilitiesChart key={st || "all"} result={result} state={st} limit={5} month={attnMonth} />
+          ))}
+        </div>
+      </Section>
 
-      {/* Year-over-Year comparison — internal + SpotHero combined, by month. */}
+      {/* Year-over-Year comparison — internal + SpotHero combined, per state. */}
       <Section
         title="Year-over-Year Comparison"
-        subtitle="Complaints per month compared across years (this year vs last year) — internal and SpotHero combined. Honors the category / state filters; uses the full history, not the date range."
+        subtitle="Complaints per month compared across years (this year vs last year), per state — internal and SpotHero combined. Filter to one State to show only it."
       >
-        <YearComparisonChart records={sourceYoyRecords} title="Complaints — Internal + SpotHero" />
+        <div className={`grid grid-cols-1 gap-4 ${yoyStates.length > 1 ? "xl:grid-cols-2" : ""}`}>
+          {yoyStates.map((st) => (
+            <YearComparisonChart
+              key={st || "all"}
+              records={recsForState(st)}
+              title={st ? `Complaints — ${st}` : "Complaints — Internal + SpotHero"}
+            />
+          ))}
+        </div>
       </Section>
 
-      {/* Split by source — internal complaints and SpotHero complaints. */}
+      {/* Split by source — internal complaints and SpotHero complaints, per state. */}
       <Section
         title="Complaints by Month — Internal vs SpotHero"
-        subtitle="Year-over-year (this year vs last year) by month, shown separately for internal and SpotHero complaints."
+        subtitle="Year-over-year by month, internal vs SpotHero, per state."
       >
-        <ReportCharts records={sourceYoyRecords} />
+        <div className="space-y-4">
+          {yoyStates.map((st) => (
+            <ReportCharts key={st || "all"} records={recsForState(st)} state={st || undefined} />
+          ))}
+        </div>
       </Section>
 
-      {/* Own section so it renders full-width in the exported report. */}
+      {/* Refund amount by month, per state. */}
       <Section
         title="Refunds — Internal vs SpotHero"
-        subtitle="Refund amount by month — internal vs SpotHero — for the latest data year."
+        subtitle="Refund amount by month — internal vs SpotHero — per state, latest data year."
       >
-        <RefundBySourceChart records={sourceYoyRecords} />
+        <div className={`grid grid-cols-1 gap-4 ${yoyStates.length > 1 ? "xl:grid-cols-2" : ""}`}>
+          {yoyStates.map((st) => (
+            <RefundBySourceChart key={st || "all"} records={recsForState(st)} state={st || undefined} />
+          ))}
+        </div>
       </Section>
 
-      {/* Own section so it renders full-width in the exported report. */}
+      {/* Complaint rate vs refund % of net remit, per state. */}
       <Section
         title="Complaint Rate vs Refund % of Net Remit"
-        subtitle="Bars = complaint rate (% of reservations) · dashed lines = refund % of net remit · this year vs last year."
+        subtitle="Bars = complaint rate (% of reservations) · dashed lines = refund % of net remit · this year vs last year · per state."
       >
-        <RateVsRefundChart monthly={sourceYoyMonthly} />
+        <div className={`grid grid-cols-1 gap-4 ${yoyStates.length > 1 ? "xl:grid-cols-2" : ""}`}>
+          {yoyStates.map((st) => (
+            <RateVsRefundChart key={st || "all"} monthly={monthlyForState(st)} state={st || undefined} />
+          ))}
+        </div>
       </Section>
 
       {/* Facility Summary table — filterable by priority + sortable columns */}
@@ -708,7 +753,7 @@ function FacilitySummaryTable({
   }, [picked, records]);
 
   // Only the top 50 facilities (by the current sort) are shown.
-  const TOP_N = 50;
+  const TOP_N = 20;
   const filteredCount = useMemo(
     () =>
       priority === "All"
@@ -936,7 +981,7 @@ function snapshotTables(): TableSnapshot[] {
         )
         .filter((r) => r.length === headers.length);
       // The report's facility summary shows only the top 50 (by current sort).
-      if (kind === "facility") rows = rows.slice(0, 50);
+      if (kind === "facility") rows = rows.slice(0, 20);
       out.push({ title, headers, rows });
     });
   return out;
