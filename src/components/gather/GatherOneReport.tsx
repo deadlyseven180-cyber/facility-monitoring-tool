@@ -416,6 +416,7 @@ export default function GatherOneReport() {
       {analyzed && result && (
         <ReportDashboard
           result={result}
+          stateFilter={stateFilter}
           sourceYoyRecords={(resultAllSources ?? result).records}
           sourceYoyMonthly={(resultAllSources ?? result).monthly}
           attnMonths={attn.months}
@@ -431,6 +432,7 @@ export default function GatherOneReport() {
 
 function ReportDashboard({
   result,
+  stateFilter,
   sourceYoyRecords,
   sourceYoyMonthly,
   attnMonths,
@@ -438,6 +440,7 @@ function ReportDashboard({
   onAttnMonth,
 }: {
   result: ReportResult;
+  stateFilter: string;
   sourceYoyRecords: FilteredRecord[];
   sourceYoyMonthly: MonthlyPoint[];
   attnMonths: string[];
@@ -476,6 +479,10 @@ function ReportDashboard({
     totals.netRemitTotal > 0
       ? (totals.refundAllTotal / totals.netRemitTotal) * 100
       : 0;
+  // Refund split: SpotHero (uploaded CSV column L) vs internal (Airtable).
+  const spotheroRefund = totals.catRefundColumnTotal;
+  const internalRefund = totals.refundTotal - totals.catRefundColumnTotal;
+  const stateLabel = stateFilter === "All" ? "All States" : stateFilter;
 
   return (
     <div className="space-y-6">
@@ -490,7 +497,7 @@ function ReportDashboard({
       )}
 
       {/* Top-line stats — each card stacks a primary + secondary metric. */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         <StatCard
           tone="indigo"
           label={`${cat} Incidents`}
@@ -506,11 +513,25 @@ function ReportDashboard({
           subValue={formatCurrency(avgRevenueAll)}
         />
         <StatCard
+          tone="indigo"
+          label="Reservations (CSV)"
+          value={totals.spotHeroReservations.toLocaleString()}
+          subLabel="State"
+          subValue={stateLabel}
+        />
+        <StatCard
           tone="red"
           label={`Total ${cat} Refunds`}
           value={formatCurrency(totals.refundTotal)}
           subLabel="Refund Rate"
           subValue={`${refundRateAll.toFixed(2)}%`}
+        />
+        <StatCard
+          tone="red"
+          label="SpotHero Refunds"
+          value={formatCurrency(spotheroRefund)}
+          subLabel="Internal Refunds"
+          subValue={formatCurrency(internalRefund)}
         />
         <StatCard
           tone="amber"

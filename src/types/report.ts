@@ -89,6 +89,8 @@ export interface ReportResult {
     facilitiesAffected: number;
     /** Total reservations (rows) in the selected date range. */
     reservations: number;
+    /** Reservations from the uploaded SpotHero CSV only (excludes internal rows). */
+    spotHeroReservations: number;
     /** Sum of the "total remit" column across all rows (= total net remit). */
     netRemitTotal: number;
     /** Sum of the "refund" column across all rows. */

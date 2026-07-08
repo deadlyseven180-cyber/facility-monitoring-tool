@@ -292,6 +292,9 @@ export function buildReportHtml(
     totals.netRemitTotal > 0
       ? (totals.refundAllTotal / totals.netRemitTotal) * 100
       : 0;
+  const stateName = stateFilter && stateFilter !== "All" ? stateFilter : "All States";
+  const spotheroRefund = totals.catRefundColumnTotal;
+  const internalRefund = totals.refundTotal - totals.catRefundColumnTotal;
 
   // Each card stacks a primary metric (colored) + a secondary metric under a
   // divider — matching the dashboard's stat cards.
@@ -371,7 +374,7 @@ export function buildReportHtml(
     color: #475569; margin: 32px 0 12px; font-weight: 700;
   }
   .kpis {
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;
   }
   .kpi {
     background: #ffffff;
@@ -433,7 +436,7 @@ export function buildReportHtml(
   @media print {
     body { padding: 16px; background: #ffffff; }
     .chart, tr, .kpi, .narr-item { break-inside: avoid; }
-    .kpis { grid-template-columns: repeat(4, 1fr); }
+    .kpis { grid-template-columns: repeat(3, 1fr); }
   }
 </style>
 </head>
@@ -460,11 +463,25 @@ export function buildReportHtml(
       formatCurrency(avgRevenueAll),
     )}
     ${kpiCard(
+      "Reservations (CSV)",
+      totals.spotHeroReservations.toLocaleString(),
+      "#6366f1",
+      "State",
+      stateName,
+    )}
+    ${kpiCard(
       `Total ${cat} Refunds`,
       formatCurrency(totals.refundTotal),
       "#e11d48",
       "Refund Rate",
       `${refundRateAll.toFixed(2)}%`,
+    )}
+    ${kpiCard(
+      "SpotHero Refunds",
+      formatCurrency(spotheroRefund),
+      "#e11d48",
+      "Internal Refunds",
+      formatCurrency(internalRefund),
     )}
     ${kpiCard(
       `SpotHero ${cat}`,

@@ -382,7 +382,9 @@ export function analyzeReport(
     (toIsoDate(row[cols.starts]) ?? "").slice(0, 7);
   let netRemitTotal = 0;
   let refundAllTotal = 0;
+  let spotHeroReservations = 0;
   for (const row of rows) {
+    if (!isInternalRow(row)) spotHeroReservations += 1;
     const state = rowState(row);
     // MA rows sum the "Total Remit" column; all other states keep the default.
     const remit = parseMoney(row[remitColFor(state)]);
@@ -575,6 +577,7 @@ export function analyzeReport(
       facilitiesAffected: facilities.length,
       // Each in-range row is one reservation.
       reservations: rows.length,
+      spotHeroReservations,
       netRemitTotal,
       refundAllTotal,
       spotHeroLotFull,
