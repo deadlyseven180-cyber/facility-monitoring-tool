@@ -16,7 +16,6 @@ import type {
   FacilitySummary,
   FilteredRecord,
   MonthlyDetail,
-  MonthlyPoint,
   PriorityLevel,
   ReportResult,
 } from "@/types/report";
@@ -420,7 +419,6 @@ export default function GatherOneReport() {
           result={result}
           stateFilter={stateFilter}
           sourceYoyRecords={(resultAllSources ?? result).records}
-          sourceYoyMonthly={(resultAllSources ?? result).monthly}
           sourceDetail={(resultAllSources ?? result).detailMonthly}
           attnMonths={attn.months}
           attnMonth={activeAttn}
@@ -437,7 +435,6 @@ function ReportDashboard({
   result,
   stateFilter,
   sourceYoyRecords,
-  sourceYoyMonthly,
   sourceDetail,
   attnMonths,
   attnMonth,
@@ -446,7 +443,6 @@ function ReportDashboard({
   result: ReportResult;
   stateFilter: string;
   sourceYoyRecords: FilteredRecord[];
-  sourceYoyMonthly: MonthlyPoint[];
   sourceDetail: MonthlyDetail[];
   attnMonths: string[];
   attnMonth: string;
@@ -507,22 +503,6 @@ function ReportDashboard({
     const m = MARKETS.filter((s) => present.has(s));
     return m.length ? m : [""];
   }, [stateFilter, sourceYoyRecords]);
-  // Per-state monthly series (from the all-states detail) for the rate chart.
-  const monthlyForState = (st: string): MonthlyPoint[] =>
-    !st
-      ? sourceYoyMonthly
-      : sourceDetail
-          .filter((d) => d.state === st)
-          .map((d) => ({
-            ym: d.ym,
-            reservations: d.reservations,
-            netRemit: d.netRemit,
-            refund: d.refund,
-            complaints: d.spotHeroComplaints + d.internalComplaints,
-          }));
-  const recsForState = (st: string) =>
-    st ? sourceYoyRecords.filter((r) => r.state === st) : sourceYoyRecords;
-
   return (
     <div className="space-y-6">
       {warnings.length > 0 && (
@@ -624,56 +604,33 @@ function ReportDashboard({
         </div>
       </Section>
 
-      {/* Year-over-Year comparison — internal + SpotHero combined, per state. */}
+      {/* One chart, one series per state (MA/IL/DC). Filter to a State to hide others. */}
       <Section
         title="Year-over-Year Comparison"
-        subtitle="Complaints per month compared across years (this year vs last year), per state — internal and SpotHero combined. Filter to one State to show only it."
+        subtitle="Complaints per month, this year vs last year — one series per state (color = state, prior year dashed). Filter to one State to show only it."
       >
-        <div className={`grid grid-cols-1 gap-4 ${yoyStates.length > 1 ? "xl:grid-cols-2" : ""}`}>
-          {yoyStates.map((st) => (
-            <YearComparisonChart
-              key={st || "all"}
-              records={recsForState(st)}
-              title={st ? `Complaints — ${st}` : "Complaints — Internal + SpotHero"}
-            />
-          ))}
-        </div>
+        <YearComparisonChart records={sourceYoyRecords} states={yoyStates} title="Complaints" />
       </Section>
 
-      {/* Split by source — internal complaints and SpotHero complaints, per state. */}
       <Section
         title="Complaints by Month — Internal vs SpotHero"
-        subtitle="Year-over-year by month, internal vs SpotHero, per state."
+        subtitle="Year-over-year by month, internal vs SpotHero — one series per state in each chart."
       >
-        <div className="space-y-4">
-          {yoyStates.map((st) => (
-            <ReportCharts key={st || "all"} records={recsForState(st)} state={st || undefined} />
-          ))}
-        </div>
+        <ReportCharts records={sourceYoyRecords} states={yoyStates} />
       </Section>
 
-      {/* Refund amount by month, per state. */}
       <Section
-        title="Refunds — Internal vs SpotHero"
-        subtitle="Refund amount by month — internal vs SpotHero — per state, latest data year."
+        title="Refunds by State"
+        subtitle="Refund amount by month — one line per state — for the latest data year."
       >
-        <div className={`grid grid-cols-1 gap-4 ${yoyStates.length > 1 ? "xl:grid-cols-2" : ""}`}>
-          {yoyStates.map((st) => (
-            <RefundBySourceChart key={st || "all"} records={recsForState(st)} state={st || undefined} />
-          ))}
-        </div>
+        <RefundBySourceChart records={sourceYoyRecords} states={yoyStates} />
       </Section>
 
-      {/* Complaint rate vs refund % of net remit, per state. */}
       <Section
         title="Complaint Rate vs Refund % of Net Remit"
-        subtitle="Bars = complaint rate (% of reservations) · dashed lines = refund % of net remit · this year vs last year · per state."
+        subtitle="Bars = complaint rate (% of reservations) · dashed lines = refund % of net remit · color = state · latest year."
       >
-        <div className={`grid grid-cols-1 gap-4 ${yoyStates.length > 1 ? "xl:grid-cols-2" : ""}`}>
-          {yoyStates.map((st) => (
-            <RateVsRefundChart key={st || "all"} monthly={monthlyForState(st)} state={st || undefined} />
-          ))}
-        </div>
+        <RateVsRefundChart detail={sourceDetail} states={yoyStates} />
       </Section>
 
       {/* Facility Summary table — filterable by priority + sortable columns */}
