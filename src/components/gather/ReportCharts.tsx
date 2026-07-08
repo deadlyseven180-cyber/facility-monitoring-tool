@@ -179,10 +179,9 @@ export function YearComparisonChart({
         });
       });
     });
-    const showLabels = type === "bar" && datasets.length <= 2;
     const cfg = {
       type,
-      plugins: showLabels ? [valueOnBarsPlugin(text)] : [],
+      plugins: [valueOnBarsPlugin(text)],
       data: { labels, datasets },
       options: {
         responsive: true,
@@ -263,7 +262,7 @@ export function RefundBySourceChart({ records, states }: { records: FilteredReco
     });
     const cfg = {
       type,
-      plugins: datasets.length <= 2 && type === "bar" ? [valueOnBarsPlugin(text, formatCurrency)] : [],
+      plugins: [valueOnBarsPlugin(text, formatCurrency)],
       data: { labels, datasets },
       options: {
         responsive: true,
@@ -359,6 +358,7 @@ export function RateVsRefundChart({ detail, states }: { detail: MonthlyDetail[];
     });
     const cfg = {
       type: "bar",
+      plugins: [valueOnBarsPlugin(text, (n) => `${n}%`)],
       data: { labels, datasets },
       options: {
         responsive: true,
