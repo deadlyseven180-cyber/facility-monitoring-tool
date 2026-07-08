@@ -35,13 +35,12 @@ import { toIsoDate } from "@/lib/reports/columns";
 import { formatCurrency, formatScore } from "@/lib/format";
 import {
   buildReportHtml,
-  buildActionPlan,
-  buildPreventionPlan,
   downloadHtml,
   printHtml,
   type ChartImage,
   type TableSnapshot,
 } from "@/lib/reportExport";
+import MonthlyDetailTables from "./MonthlyDetailTables";
 
 /** A record from the /api/internal-issues route. */
 interface InternalRecord {
@@ -420,6 +419,7 @@ export default function GatherOneReport() {
           stateFilter={stateFilter}
           sourceYoyRecords={(resultAllSources ?? result).records}
           sourceYoyMonthly={(resultAllSources ?? result).monthly}
+          sourceDetail={(resultAllSources ?? result).detailMonthly}
           attnMonths={attn.months}
           attnMonth={activeAttn}
           onAttnMonth={setAttnMonth}
@@ -436,6 +436,7 @@ function ReportDashboard({
   stateFilter,
   sourceYoyRecords,
   sourceYoyMonthly,
+  sourceDetail,
   attnMonths,
   attnMonth,
   onAttnMonth,
@@ -444,6 +445,7 @@ function ReportDashboard({
   stateFilter: string;
   sourceYoyRecords: FilteredRecord[];
   sourceYoyMonthly: MonthlyPoint[];
+  sourceDetail: MonthlyDetail[];
   attnMonths: string[];
   attnMonth: string;
   onAttnMonth: (m: string) => void;
@@ -641,19 +643,14 @@ function ReportDashboard({
         />
       </Section>
 
-      {/* Recommendation + action plan — same content as the downloaded report. */}
+      {/* Month-by-month detail per MA/IL/DC state + year (auto-hides other
+          states when a state is selected). Action Plan & Preventive Measures
+          live in the downloaded report only. */}
       <Section
-        title="Recommended Action Plan"
-        subtitle="Prioritized operational actions derived from the data"
+        title="Detailed Monthly Data (MA / IL / DC)"
+        subtitle="Month-by-month reservations, complaints (SpotHero vs Internal), rate, refunds and net remit — this year vs last year. Pick a State above to focus on one market."
       >
-        <NarrativeCard items={buildActionPlan(result, attnMonth)} ordered accent="indigo" />
-      </Section>
-
-      <Section
-        title={`Preventive Measures — Reducing ${cat}`}
-        subtitle="Broad, proactive measures to prevent recurrence"
-      >
-        <NarrativeCard items={buildPreventionPlan(result, attnMonth)} ordered accent="teal" />
+        <MonthlyDetailTables detail={sourceDetail} stateFilter={stateFilter} />
       </Section>
     </div>
   );
@@ -1168,51 +1165,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       </span>
       {children}
     </label>
-  );
-}
-
-/**
- * Renders a list of narrative HTML strings (from the report's summary/action/
- * prevention builders) as a professional card — used on-screen so the live
- * report matches the download exactly. Strings are produced by our own code
- * with user data HTML-escaped, so inline <b> markup is safe to render.
- */
-function NarrativeCard({
-  items,
-  ordered,
-  accent = "slate",
-}: {
-  items: string[];
-  ordered?: boolean;
-  accent?: "indigo" | "teal" | "slate";
-}) {
-  const badge =
-    accent === "indigo" ? "bg-indigo-600" : accent === "teal" ? "bg-teal-600" : "bg-slate-500";
-  const bar =
-    accent === "indigo"
-      ? "border-l-indigo-500"
-      : accent === "teal"
-        ? "border-l-teal-500"
-        : "border-l-slate-400";
-  return (
-    <div className="space-y-3">
-      {items.map((s, i) => (
-        <div
-          key={i}
-          className={`flex items-start gap-3.5 rounded-xl border border-l-4 border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md dark:border-slate-800 dark:bg-slate-900 ${bar}`}
-        >
-          <span
-            className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${badge}`}
-          >
-            {ordered ? i + 1 : "•"}
-          </span>
-          <p
-            className="text-sm leading-relaxed text-slate-700 dark:text-slate-200 [&_b]:font-semibold [&_b]:text-slate-900 dark:[&_b]:text-white"
-            dangerouslySetInnerHTML={{ __html: s }}
-          />
-        </div>
-      ))}
-    </div>
   );
 }
 

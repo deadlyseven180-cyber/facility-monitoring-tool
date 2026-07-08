@@ -272,18 +272,24 @@ const MONTH_ABBR = [
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 
-/** Group per-(state, month) detail into `state → year → months`, for the two
- *  most recent years, real states only, sorted. */
-function groupDetail(detail: MonthlyDetail[]): { state: string; year: number; rows: MonthlyDetail[] }[] {
+/** The primary markets the monthly tables cover. */
+const DETAIL_MARKETS = ["MA", "IL", "DC"];
+
+/** Group per-(state, month) detail into `state → year → months` for the two most
+ *  recent years — restricted to MA/IL/DC, and to the selected state when one is
+ *  chosen (so other states are hidden). */
+function groupDetail(
+  detail: MonthlyDetail[],
+  stateFilter?: string,
+): { state: string; year: number; rows: MonthlyDetail[] }[] {
+  const wanted =
+    stateFilter && stateFilter !== "All" ? [stateFilter] : DETAIL_MARKETS;
   const years = [...new Set(detail.map((d) => Number(d.ym.slice(0, 4))))]
     .sort((a, b) => b - a)
     .slice(0, 2)
     .sort((a, b) => b - a);
-  const states = [...new Set(detail.map((d) => d.state))]
-    .filter((s) => s && s !== "(Unknown)")
-    .sort();
   const out: { state: string; year: number; rows: MonthlyDetail[] }[] = [];
-  for (const st of states) {
+  for (const st of wanted) {
     for (const yr of years) {
       const rows = detail
         .filter((d) => d.state === st && Number(d.ym.slice(0, 4)) === yr)
@@ -296,8 +302,8 @@ function groupDetail(detail: MonthlyDetail[]): { state: string; year: number; ro
 
 /** Detailed monthly tables per state + year (reservations, complaints, rate,
  *  refunds, refund %, net remit). */
-function renderDetailTables(detail: MonthlyDetail[]): string {
-  const groups = groupDetail(detail);
+function renderDetailTables(detail: MonthlyDetail[], stateFilter?: string): string {
+  const groups = groupDetail(detail, stateFilter);
   if (!groups.length) return "";
   return groups
     .map(({ state, year, rows }) => {
@@ -324,8 +330,8 @@ function renderDetailTables(detail: MonthlyDetail[]): string {
 }
 
 /** Same tables, but complaints split into Internal vs SpotHero. */
-function renderSourceTables(detail: MonthlyDetail[]): string {
-  const groups = groupDetail(detail);
+function renderSourceTables(detail: MonthlyDetail[], stateFilter?: string): string {
+  const groups = groupDetail(detail, stateFilter);
   if (!groups.length) return "";
   return groups
     .map(({ state, year, rows }) => {
@@ -668,9 +674,9 @@ export function buildReportHtml(
 
   ${tablesHtml}
 
-  ${detailMonthly.length ? `<h2>Detailed Monthly Data</h2>${renderDetailTables(detailMonthly)}` : ""}
+  ${renderDetailTables(detailMonthly, stateFilter) ? `<h2>Detailed Monthly Data</h2>${renderDetailTables(detailMonthly, stateFilter)}` : ""}
 
-  ${detailMonthly.length ? `<h2>Monthly Complaints — Internal vs SpotHero</h2>${renderSourceTables(detailMonthly)}` : ""}
+  ${renderSourceTables(detailMonthly, stateFilter) ? `<h2>Monthly Complaints — Internal vs SpotHero</h2>${renderSourceTables(detailMonthly, stateFilter)}` : ""}
 
   <h2>Recommended Action Plan</h2>
   ${renderActionCards(buildActionCards(result, attnMonth))}
