@@ -29,9 +29,8 @@ import {
   MERGED_COLUMNS,
   MERGED_HEADERS,
 } from "@/lib/reports/merge";
-import { filterForCategory, categoryForReason, type IssueCategory } from "@/lib/reports/filters";
+import { filterForCategory, type IssueCategory } from "@/lib/reports/filters";
 import { toIsoDate } from "@/lib/reports/columns";
-import { extractSpotHeroData } from "@/lib/reports/spotheroStore";
 import { formatCurrency, formatScore } from "@/lib/format";
 import {
   buildReportHtml,
@@ -306,39 +305,8 @@ export default function GatherOneReport() {
 
       setInternalRows(rows);
       setAnalyzed(true);
-
-      // Persist any uploaded SpotHero CSV to the Google Sheet (Drive) — same as
-      // the Facility Progress Checker's upload — then refresh the stored count.
-      if (files.length) {
-        const spotheroRows = mergeReportFiles(files.map((f) => ({ data: f, source: "spothero" as const }))).rows;
-        const incidents = spotheroRows
-          .map((r) => {
-            const cat = categoryForReason(String(r.reason || ""));
-            const facility = String(r.spot || "").trim();
-            if ((cat !== "lot_full" && cat !== "inaccessibility") || !facility) return null;
-            return { facility, date: toIsoDate(String(r.starts || "")) ?? "", rentalId: String(r.rentalId || "").trim(), category: cat };
-          })
-          .filter((x): x is { facility: string; date: string; rentalId: string; category: "lot_full" | "inaccessibility" } => x !== null);
-        const fileName = files.map((f) => f.fileName).join(", ");
-        if (incidents.length) {
-          const uploadedBy = (typeof window !== "undefined" && localStorage.getItem("progressUserName")) || "Gather Data";
-          await fetch("/api/complaint-history", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", ...(pat ? { "x-airtable-pat": pat } : {}) },
-            body: JSON.stringify({ fileName, uploadedBy, incidents }),
-          }).catch(() => {});
-          refreshStored();
-        }
-        // Persist raw rows + per-facility financials (net remit, refunds,
-        // reservations, complaints) so the History view can show them later
-        // without re-uploading. De-duped by fileName server-side.
-        const { rows: shRows, financials } = extractSpotHeroData(files, fileName, new Date().toISOString());
-        fetch("/api/spothero-store", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fileName, rows: shRows, financials }),
-        }).catch(() => {});
-      }
+      // Uploaded SpotHero CSVs are analyzed in-memory only — the report no
+      // longer persists the uploaded file's data to the Google Sheet / Drive.
     } catch {
       setError("Something went wrong generating the report.");
     } finally {
