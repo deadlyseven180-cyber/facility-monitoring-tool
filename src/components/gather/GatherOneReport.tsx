@@ -15,6 +15,7 @@ import type { ParsedCsv } from "@/types/data";
 import type {
   FacilitySummary,
   FilteredRecord,
+  MonthlyDetail,
   MonthlyPoint,
   PriorityLevel,
   ReportResult,
@@ -393,7 +394,7 @@ export default function GatherOneReport() {
                 </select>
               </Field>
               <div className="flex items-center gap-2 self-end">
-                {merged && <ExportMenu result={result} dateRange={dateRange} stateFilter={stateFilter} attnMonth={activeAttn} />}
+                {merged && <ExportMenu result={result} dateRange={dateRange} stateFilter={stateFilter} attnMonth={activeAttn} detailMonthly={(resultAllSources ?? result).detailMonthly} />}
                 <button
                   type="button"
                   onClick={handleClear}
@@ -949,11 +950,13 @@ function ExportMenu({
   dateRange,
   stateFilter,
   attnMonth,
+  detailMonthly,
 }: {
   result: ReportResult;
   dateRange: DateRange;
   stateFilter: string;
   attnMonth: string;
+  detailMonthly: MonthlyDetail[];
 }) {
   const [open, setOpen] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
@@ -971,6 +974,7 @@ function ExportMenu({
       snapshotTables(),
       stateFilter,
       attnMonth,
+      detailMonthly,
     );
   }
 

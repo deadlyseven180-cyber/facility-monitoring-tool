@@ -1,4 +1,4 @@
-import type { ReportResult } from "@/types/report";
+import type { MonthlyDetail, ReportResult } from "@/types/report";
 import { formatCurrency } from "./format";
 import { toIsoDate } from "./reports/columns";
 
@@ -267,6 +267,141 @@ function renderNarrative(items: string[], numbered: boolean, accent: string): st
     .join("")}</div>`;
 }
 
+const MONTH_ABBR = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+/** Group per-(state, month) detail into `state → year → months`, for the two
+ *  most recent years, real states only, sorted. */
+function groupDetail(detail: MonthlyDetail[]): { state: string; year: number; rows: MonthlyDetail[] }[] {
+  const years = [...new Set(detail.map((d) => Number(d.ym.slice(0, 4))))]
+    .sort((a, b) => b - a)
+    .slice(0, 2)
+    .sort((a, b) => b - a);
+  const states = [...new Set(detail.map((d) => d.state))]
+    .filter((s) => s && s !== "(Unknown)")
+    .sort();
+  const out: { state: string; year: number; rows: MonthlyDetail[] }[] = [];
+  for (const st of states) {
+    for (const yr of years) {
+      const rows = detail
+        .filter((d) => d.state === st && Number(d.ym.slice(0, 4)) === yr)
+        .sort((a, b) => a.ym.localeCompare(b.ym));
+      if (rows.length) out.push({ state: st, year: yr, rows });
+    }
+  }
+  return out;
+}
+
+/** Detailed monthly tables per state + year (reservations, complaints, rate,
+ *  refunds, refund %, net remit). */
+function renderDetailTables(detail: MonthlyDetail[]): string {
+  const groups = groupDetail(detail);
+  if (!groups.length) return "";
+  return groups
+    .map(({ state, year, rows }) => {
+      let tRes = 0, tComp = 0, tRef = 0, tRem = 0;
+      const body = rows
+        .map((d) => {
+          const comp = d.spotHeroComplaints + d.internalComplaints;
+          const rate = d.reservations > 0 ? (comp / d.reservations) * 100 : 0;
+          const ref = Math.abs(d.refund);
+          const refPct = d.netRemit > 0 ? (ref / d.netRemit) * 100 : 0;
+          tRes += d.reservations; tComp += comp; tRef += ref; tRem += d.netRemit;
+          return `<tr><td>${MONTH_ABBR[Number(d.ym.slice(5, 7)) - 1]}</td><td class="num">${d.reservations.toLocaleString()}</td><td class="num">${comp}</td><td class="num">${rate.toFixed(2)}%</td><td class="num">${formatCurrency(ref)}</td><td class="num">${refPct.toFixed(2)}%</td><td class="num">${formatCurrency(d.netRemit)}</td></tr>`;
+        })
+        .join("");
+      const tRate = tRes > 0 ? (tComp / tRes) * 100 : 0;
+      const tRefPct = tRem > 0 ? (tRef / tRem) * 100 : 0;
+      return `<h3 class="subhead">${esc(state)} — ${year}</h3>
+      <div class="panel"><table>
+        <thead><tr><th>Month</th><th class="num">Reservations</th><th class="num">Complaints</th><th class="num">Rate</th><th class="num">Refunds ($)</th><th class="num">Refund %</th><th class="num">Net Remit ($)</th></tr></thead>
+        <tbody>${body}<tr class="total"><td>TOTAL</td><td class="num">${tRes.toLocaleString()}</td><td class="num">${tComp}</td><td class="num">${tRate.toFixed(2)}%</td><td class="num">${formatCurrency(tRef)}</td><td class="num">${tRefPct.toFixed(2)}%</td><td class="num">${formatCurrency(tRem)}</td></tr></tbody>
+      </table></div>`;
+    })
+    .join("");
+}
+
+/** Same tables, but complaints split into Internal vs SpotHero. */
+function renderSourceTables(detail: MonthlyDetail[]): string {
+  const groups = groupDetail(detail);
+  if (!groups.length) return "";
+  return groups
+    .map(({ state, year, rows }) => {
+      let tS = 0, tI = 0;
+      const body = rows
+        .map((d) => {
+          tS += d.spotHeroComplaints; tI += d.internalComplaints;
+          return `<tr><td>${MONTH_ABBR[Number(d.ym.slice(5, 7)) - 1]}</td><td class="num">${d.spotHeroComplaints}</td><td class="num">${d.internalComplaints}</td><td class="num">${d.spotHeroComplaints + d.internalComplaints}</td></tr>`;
+        })
+        .join("");
+      return `<h3 class="subhead">${esc(state)} — ${year}</h3>
+      <div class="panel"><table>
+        <thead><tr><th>Month</th><th class="num">SpotHero</th><th class="num">Internal</th><th class="num">Total</th></tr></thead>
+        <tbody>${body}<tr class="total"><td>TOTAL</td><td class="num">${tS}</td><td class="num">${tI}</td><td class="num">${tS + tI}</td></tr></tbody>
+      </table></div>`;
+    })
+    .join("");
+}
+
+interface ActionCardData {
+  title: string;
+  priority: "Critical" | "High" | "Medium" | "Standard";
+  market: string;
+  body: string;
+}
+
+/** Data-driven priority cards for the selected/latest month's action-required facilities. */
+function buildActionCards(result: ReportResult, month?: string): ActionCardData[] {
+  const cat = result.filterLabel;
+  const { monthLabel, facilities } = actionRequired(result, month);
+  const cards: ActionCardData[] = [];
+  for (const f of facilities.slice(0, 6)) {
+    const total = f.complaints;
+    const priority: ActionCardData["priority"] =
+      total >= 8 ? "Critical" : total >= 5 ? "High" : total >= 3 ? "Medium" : "Standard";
+    const type = f.lf && f.ia ? "Lot Full & Inaccessibility" : f.lf >= f.ia ? "Lot Full" : "Inaccessibility";
+    cards.push({
+      title: `Stabilize ${esc(f.name)}`,
+      priority,
+      market: esc(f.state || "—"),
+      body: `${f.complaints} ${esc(cat)} incident${f.complaints === 1 ? "" : "s"} in ${monthLabel}. ${type} is the primary driver${f.refund > 0 ? `, ${formatCurrency(f.refund)} in refunds` : ""}. Run an on-site capacity/access audit, verify live availability counts, and tighten oversell controls this cycle. <b>Owner:</b> Operations &middot; <b>Due:</b> this cycle.`,
+    });
+  }
+  const high = facilities.filter((f) => f.refund > 0).sort((a, b) => b.refund - a.refund).slice(0, 5);
+  if (high.length)
+    cards.push({
+      title: "Contain Refund Leakage",
+      priority: "High",
+      market: esc([...new Set(high.map((f) => f.state).filter(Boolean))].join(", ") || "—"),
+      body: `Highest refund exposure in ${monthLabel}: ${high.map((f) => `${esc(f.name)} (${formatCurrency(f.refund)})`).join(", ")}. Root-cause each and redirect customers to nearby partner facilities rather than refunding. <b>Owner:</b> Operations &middot; <b>Due:</b> this cycle.`,
+    });
+  cards.push({
+    title: "Weekly Monitoring",
+    priority: "Standard",
+    market: "All",
+    body: `Track the ${monthLabel} hotspots week-over-week so emerging issues are contained before they escalate. <b>Owner:</b> Admin &middot; <b>Due:</b> ongoing.`,
+  });
+  return cards;
+}
+
+const PRIORITY_COLOR: Record<string, string> = {
+  Critical: "#dc2626",
+  High: "#ea580c",
+  Medium: "#2563eb",
+  Standard: "#0d9488",
+};
+
+function renderActionCards(cards: ActionCardData[]): string {
+  return `<div class="acards">${cards
+    .map((c) => {
+      const color = PRIORITY_COLOR[c.priority] ?? "#4f46e5";
+      return `<div class="acard"><div class="acard-head" style="background:${color}"><span>${c.title}</span><span class="acard-pri">${c.priority.toUpperCase()}</span></div><div class="acard-body">${c.body}</div><div class="acard-meta"><span class="chip" style="color:${color};border-color:${color}55">Market: ${c.market}</span></div></div>`;
+    })
+    .join("")}</div>`;
+}
+
 /** Build a self-contained, light-themed executive report (HTML / print → PDF). */
 export function buildReportHtml(
   result: ReportResult,
@@ -276,6 +411,7 @@ export function buildReportHtml(
   tables: TableSnapshot[] = [],
   stateFilter?: string,
   attnMonth?: string,
+  detailMonthly: MonthlyDetail[] = [],
 ): string {
   const { totals } = result;
   const cat = result.filterLabel; // "All Issues" | "Lot Full" | "Inaccessibility"
@@ -432,10 +568,38 @@ export function buildReportHtml(
   }
   .narr-text { color: #334155; font-size: 13.5px; line-height: 1.55; }
   .narr-text b { color: #0f172a; font-weight: 700; }
+  .subhead { font-size: 13px; font-weight: 700; color: #1e293b; margin: 20px 0 8px; }
+  .total td { font-weight: 700; background: #f8fafc; color: #0f172a; }
+  .acards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  .acard {
+    border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;
+    background: #ffffff; box-shadow: 0 1px 2px rgba(15,23,42,.05); break-inside: avoid;
+  }
+  .acard-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    color: #ffffff; padding: 10px 14px; font-weight: 700; font-size: 13.5px;
+  }
+  .acard-pri {
+    font-size: 10px; font-weight: 700; letter-spacing: .04em;
+    background: rgba(255,255,255,.25); padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+  }
+  .acard-body { padding: 12px 14px; color: #334155; font-size: 12.5px; line-height: 1.5; }
+  .acard-body b { color: #0f172a; }
+  .acard-meta { padding: 0 14px 12px; }
+  .chip {
+    display: inline-block; border: 1px solid; border-radius: 999px;
+    padding: 2px 10px; font-size: 11px; font-weight: 600;
+  }
+  .timeline { display: flex; gap: 8px; }
+  .tl {
+    flex: 1; color: #ffffff; padding: 12px; border-radius: 8px;
+    font-weight: 700; font-size: 12px; text-align: center;
+  }
+  .tl span { display: block; font-weight: 400; font-size: 11px; opacity: .9; margin-top: 3px; }
   .foot { margin-top: 28px; color: #94a3b8; font-size: 11px; }
   @media print {
     body { padding: 16px; background: #ffffff; }
-    .chart, tr, .kpi, .narr-item { break-inside: avoid; }
+    .chart, tr, .kpi, .narr-item, .acard { break-inside: avoid; }
     .kpis { grid-template-columns: repeat(3, 1fr); }
   }
 </style>
@@ -504,11 +668,23 @@ export function buildReportHtml(
 
   ${tablesHtml}
 
-  <h2>Recommended Action Plan</h2>
-  ${renderNarrative(buildActionPlan(result, attnMonth), true, "#4f46e5")}
+  ${detailMonthly.length ? `<h2>Detailed Monthly Data</h2>${renderDetailTables(detailMonthly)}` : ""}
 
-  <h2>Preventive Measures — Reducing ${esc(cat)}</h2>
+  ${detailMonthly.length ? `<h2>Monthly Complaints — Internal vs SpotHero</h2>${renderSourceTables(detailMonthly)}` : ""}
+
+  <h2>Recommended Action Plan</h2>
+  ${renderActionCards(buildActionCards(result, attnMonth))}
+
+  <h2>Strategic Recommendations — Reducing ${esc(cat)}</h2>
   ${renderNarrative(buildPreventionPlan(result, attnMonth), true, "#0d9488")}
+
+  <h2>Implementation Timeline</h2>
+  <div class="timeline">
+    <div class="tl" style="background:#dc2626">Immediate · 7 days<span>Critical facilities &amp; root cause</span></div>
+    <div class="tl" style="background:#ea580c">Short · 30 days<span>High-priority + refund leakage</span></div>
+    <div class="tl" style="background:#2563eb">Mid · 60 days<span>Inventory &amp; overbooking controls</span></div>
+    <div class="tl" style="background:#0d9488">Ongoing<span>Monitor &amp; iterate</span></div>
+  </div>
 
   <div class="foot">Generated ${esc(generatedAt)}</div>
 </body>

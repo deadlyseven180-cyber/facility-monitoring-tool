@@ -55,6 +55,24 @@ export interface MonthlyPoint {
   complaints: number;
 }
 
+/** Per-(state, month) detail across ALL states (ignores the report's state
+ *  filter), split by source — powers the exported Detailed Monthly Data tables. */
+export interface MonthlyDetail {
+  state: string;
+  /** "YYYY-MM". */
+  ym: string;
+  /** SpotHero reservations (bookings) that month. */
+  reservations: number;
+  /** Summed net remit that month. */
+  netRemit: number;
+  /** Summed refund column that month (signed). */
+  refund: number;
+  /** Matched SpotHero complaints that month. */
+  spotHeroComplaints: number;
+  /** Matched internal complaints that month. */
+  internalComplaints: number;
+}
+
 /** Roll-up grouped by MA State value. */
 export interface StateSummary {
   state: string;
@@ -77,6 +95,8 @@ export interface ReportResult {
   topByPriority: FacilitySummary[];
   /** Per-month aggregates (sorted by month), for year-over-year trend charts. */
   monthly: MonthlyPoint[];
+  /** Per-(state, month) detail across all states, split by source (export tables). */
+  detailMonthly: MonthlyDetail[];
   totals: {
     incidentCount: number;
     /** Matched-category refunds total (SpotHero col L + internal amounts). */

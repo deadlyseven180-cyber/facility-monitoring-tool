@@ -407,6 +407,47 @@ export function analyzeReport(
     }
   }
 
+  // Per-(state, month) detail across ALL states (ignores the state filter), split
+  // by source — powers the exported Detailed Monthly Data tables. Uses rows with
+  // only the date filter applied (not the state filter).
+  const detailRows = data.rows.filter(
+    (r) =>
+      !(isInternalRow(r) && dateRange && !inRange(toIsoDate(r[cols.starts]), dateRange)),
+  );
+  const detailMap = new Map<
+    string,
+    {
+      state: string;
+      ym: string;
+      reservations: number;
+      netRemit: number;
+      refund: number;
+      spotHeroComplaints: number;
+      internalComplaints: number;
+    }
+  >();
+  for (const row of detailRows) {
+    const ym = monthOf(row);
+    if (!ym) continue;
+    const st = rowState(row);
+    const k = `${st}|${ym}`;
+    const e =
+      detailMap.get(k) ??
+      { state: st, ym, reservations: 0, netRemit: 0, refund: 0, spotHeroComplaints: 0, internalComplaints: 0 };
+    const internal = isInternalRow(row);
+    if (!internal) {
+      e.reservations += 1;
+      e.netRemit += parseMoney(row[remitColFor(st)]);
+    }
+    e.refund += parseMoney(row[cols.refundAmount]);
+    if (matchesFilter(row[cols.reason] ?? "", filter)) {
+      if (internal) e.internalComplaints += 1;
+      else e.spotHeroComplaints += 1;
+    }
+    detailMap.set(k, e);
+  }
+  const detailMonthly = [...detailMap.values()];
+
   // Filter matching records and group by facility.
   const records: FilteredRecord[] = [];
   const grouped = new Map<
@@ -570,6 +611,7 @@ export function analyzeReport(
     monthly: [...monthlyMap.entries()]
       .map(([ym, v]) => ({ ym, ...v }))
       .sort((a, b) => a.ym.localeCompare(b.ym)),
+    detailMonthly,
     totals: {
       incidentCount: records.length,
       refundTotal: records.reduce((s, r) => s + r.refundAmount, 0),
