@@ -174,9 +174,9 @@ export default function GatherOneReport() {
     }
   }, [scopedMerged, analyzed, stateFilter, dateRange, category, facilityStates]);
 
-  // All sources + all dates (category/state filtered, source-INdependent) — for
-  // the Year-over-Year chart, which always combines internal + SpotHero and
-  // uses the full history regardless of the Source dropdown / date range.
+  // All sources + all dates (category filtered), honoring the State filter — the
+  // charts' per-state series come from here, so the State view dropdown drives
+  // them. detailMonthly inside is computed across all states regardless.
   const resultAllSources = useMemo<ReportResult | null>(() => {
     if (!merged || !analyzed) return null;
     try {
@@ -195,7 +195,7 @@ export default function GatherOneReport() {
   // month (preferring the newest uploaded SpotHero month).
   const [attnMonth, setAttnMonth] = useState<string>("");
   const attn = useMemo(() => {
-    const recs = result?.records ?? [];
+    const recs = (resultAllSources ?? result)?.records ?? [];
     let maxSpot = "";
     let maxAny = "";
     const set = new Set<string>();
@@ -207,7 +207,7 @@ export default function GatherOneReport() {
       if (r.source === "spothero" && ym > maxSpot) maxSpot = ym;
     }
     return { months: [...set].sort().reverse(), def: maxSpot || maxAny };
-  }, [result]);
+  }, [resultAllSources, result]);
   const activeAttn = attn.months.includes(attnMonth) ? attnMonth : attn.def;
 
   function reset() {
@@ -418,6 +418,7 @@ export default function GatherOneReport() {
         <ReportDashboard
           result={result}
           stateFilter={stateFilter}
+          onStateFilter={setStateFilter}
           sourceYoyRecords={(resultAllSources ?? result).records}
           sourceDetail={(resultAllSources ?? result).detailMonthly}
           attnMonths={attn.months}
@@ -434,6 +435,7 @@ export default function GatherOneReport() {
 function ReportDashboard({
   result,
   stateFilter,
+  onStateFilter,
   sourceYoyRecords,
   sourceDetail,
   attnMonths,
@@ -442,6 +444,7 @@ function ReportDashboard({
 }: {
   result: ReportResult;
   stateFilter: string;
+  onStateFilter: (s: string) => void;
   sourceYoyRecords: FilteredRecord[];
   sourceDetail: MonthlyDetail[];
   attnMonths: string[];
@@ -491,12 +494,12 @@ function ReportDashboard({
   const attnStates = useMemo(() => {
     if (stateFilter !== "All") return [stateFilter];
     const recs = attnMonth
-      ? result.records.filter((r) => (toIsoDate(r.starts) ?? "").slice(0, 7) === attnMonth)
-      : result.records;
+      ? sourceYoyRecords.filter((r) => (toIsoDate(r.starts) ?? "").slice(0, 7) === attnMonth)
+      : sourceYoyRecords;
     const present = new Set(recs.map((r) => r.state));
     const m = MARKETS.filter((s) => present.has(s));
     return m.length ? m : [""];
-  }, [stateFilter, result, attnMonth]);
+  }, [stateFilter, sourceYoyRecords, attnMonth]);
   const yoyStates = useMemo(() => {
     if (stateFilter !== "All") return [stateFilter];
     const present = new Set(sourceYoyRecords.map((r) => r.state));
@@ -514,6 +517,28 @@ function ReportDashboard({
           </ul>
         </div>
       )}
+
+      {/* State-view dropdown — drives the whole report (stats, tables, and the
+          per-state charts) and updates live. */}
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+          View by State
+        </span>
+        <select
+          value={stateFilter}
+          onChange={(e) => onStateFilter(e.target.value)}
+          aria-label="View by state"
+          className={filterSelectCls}
+        >
+          <option value="All">All States (per state)</option>
+          <option value="MA">MA only</option>
+          <option value="IL">IL only</option>
+          <option value="DC">DC only</option>
+        </select>
+        <span className="text-xs text-slate-400 dark:text-slate-500">
+          Charts, stats and tables update to your selection.
+        </span>
+      </div>
 
       {/* Top-line stats — each card stacks a primary + secondary metric. */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
@@ -599,7 +624,7 @@ function ReportDashboard({
         )}
         <div className={`grid grid-cols-1 gap-4 ${attnStates.length > 1 ? "xl:grid-cols-2" : ""}`}>
           {attnStates.map((st) => (
-            <TopFacilitiesChart key={st || "all"} result={result} state={st} limit={5} month={attnMonth} />
+            <TopFacilitiesChart key={st || "all"} records={sourceYoyRecords} state={st} limit={5} month={attnMonth} />
           ))}
         </div>
       </Section>

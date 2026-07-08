@@ -6,7 +6,7 @@ import ChartCanvas from "@/components/shared/ChartCanvas";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { priorityLevelFromCount } from "@/lib/reports/scoring";
 import { toIsoDate } from "@/lib/reports/columns";
-import type { PriorityLevel, ReportResult } from "@/types/report";
+import type { FilteredRecord, PriorityLevel } from "@/types/report";
 
 const TIER_COLOR: Record<PriorityLevel, string> = {
   Critical: "#ef4444",
@@ -52,12 +52,13 @@ const selectCls =
  * stacked by 2-week period.
  */
 export default function TopFacilitiesChart({
-  result,
+  records: allRecords,
   state,
   limit = 5,
   month = "",
 }: {
-  result: ReportResult;
+  /** All-dates, all-source records (category already applied upstream). */
+  records: FilteredRecord[];
   /** State to scope to (e.g. "MA"); "" = all states. */
   state: string;
   limit?: number;
@@ -72,11 +73,11 @@ export default function TopFacilitiesChart({
   const [view, setView] = useState<View>("facility");
   const catLabel = state || "All States";
 
-  // Records for this state (the category filter is already applied upstream),
-  // scoped to the selected month (from the parent's Attention Required picker).
+  // Records for this state, scoped to the selected month (from the parent's
+  // Attention Required picker).
   const catRecords = useMemo(
-    () => (state ? result.records.filter((r) => r.state === state) : result.records),
-    [result, state],
+    () => (state ? allRecords.filter((r) => r.state === state) : allRecords),
+    [allRecords, state],
   );
   const records = useMemo(() => {
     if (!month) return catRecords;
